@@ -461,10 +461,19 @@ def stocks_timing_view(x):
 
     t=x.assign(TradeDay=sell_dt.dt.day_name(),HoldHours=(sell_dt-buy_dt).dt.total_seconds()/3600)
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
-    day=t.groupby("TradeDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
-    day["WinRate"]=day.WinRate*100
+    day=t.groupby("TradeDay",dropna=True).agg(
+        Trades=("pnl","size"),
+        WinningTrades=("win","sum"),
+        LosingTrades=("loss","sum")
+    ).reset_index()
+    day["WinningTrades"]=day["WinningTrades"].astype(int)
+    day["LosingTrades"]=day["LosingTrades"].astype(int)
     day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
+    day["DayType"]=np.where(
+        day["WinningTrades"]>day["LosingTrades"],"Winning day",
+        np.where(day["LosingTrades"]>day["WinningTrades"],"Loss day","Equal")
+    )
 
     if has_time:
         t=t.assign(BuyTime=buy_dt.dt.hour+buy_dt.dt.minute/60+buy_dt.dt.second/3600,
@@ -515,26 +524,43 @@ def stocks_timing_view(x):
         st.info("⏰ Entry/exit time analysis is waiting for EOD files that contain actual timestamps. The currently stored trade dates contain dates only, so no artificial time performance is shown.")
 
     if not day.empty:
-        weekday_chart=day[day.PnL!=0].copy()
+        weekday_chart=day[day.Trades>0].copy()
         if not weekday_chart.empty:
-            weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             weekday_chart["DayLabel"]=weekday_chart["TradeDay"]+"<br>"+weekday_chart["DayType"]
             day_order=[f"{d}<br>{weekday_chart.loc[weekday_chart.TradeDay.eq(d),'DayType'].iloc[0]}" for d in weekdays if (weekday_chart.TradeDay==d).any()]
+            plot_df=weekday_chart.melt(
+                id_vars=["TradeDay","DayLabel","DayType"],
+                value_vars=["WinningTrades","LosingTrades"],
+                var_name="Outcome",
+                value_name="TradeCount"
+            )
+            plot_df["Outcome"]=plot_df["Outcome"].map({
+                "WinningTrades":"Winning trades",
+                "LosingTrades":"Losing trades"
+            })
             fig=px.bar(
-                weekday_chart,
+                plot_df,
                 x="DayLabel",
-                y="PnL",
-                color="DayType",
+                y="TradeCount",
+                color="Outcome",
+                barmode="group",
                 category_orders={"DayLabel":day_order},
-                color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
-                text="DayType",
-                title="Stocks — realised P&L by day"
+                color_discrete_map={"Winning trades":PROFIT,"Losing trades":LOSS},
+                text="TradeCount",
+                title="Stocks — winning vs losing trades by day"
             )
             fig.update_traces(textposition="outside",texttemplate="%{text}")
-            fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
+            fig.update_yaxes(dtick=1,title_text="Number of trades")
             fig.update_xaxes(title_text="Day")
-            fig.update_layout(showlegend=False)
-            chart(fig,340)
+            fig.update_layout(legend_title_text="Trade outcome")
+            chart(fig,360)
+            most_win=weekday_chart.loc[weekday_chart.WinningTrades.idxmax()]
+            most_loss=weekday_chart.loc[weekday_chart.LosingTrades.idxmax()]
+            st.info(
+                f"🏆 Most winning day: **{most_win.TradeDay}** ({int(most_win.WinningTrades)} winning trades) • "
+                f"Most loss day: **{most_loss.TradeDay}** ({int(most_loss.LosingTrades)} losing trades). "
+                "This is based on trade count, not P&L amount."
+            )
 
 def weekday_pnl_view(x, title):
     st.subheader("📅 Winning day vs loss day")
@@ -542,33 +568,57 @@ def weekday_pnl_view(x, title):
     t=x.assign(TradeDay=sell_day_dt.dt.day_name())
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
     day=t.groupby("TradeDay",dropna=True).agg(
-        PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")
+        Trades=("pnl","size"),
+        WinningTrades=("win","sum"),
+        LosingTrades=("loss","sum")
     ).reset_index()
-    day["WinRate"]=day.WinRate*100
+    day["WinningTrades"]=day["WinningTrades"].astype(int)
+    day["LosingTrades"]=day["LosingTrades"].astype(int)
     day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
+    day["DayType"]=np.where(
+        day["WinningTrades"]>day["LosingTrades"],"Winning day",
+        np.where(day["LosingTrades"]>day["WinningTrades"],"Loss day","Equal")
+    )
 
     if not day.empty:
-        weekday_chart=day[day.PnL!=0].copy()
+        weekday_chart=day[day.Trades>0].copy()
         if not weekday_chart.empty:
-            weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             weekday_chart["DayLabel"]=weekday_chart["TradeDay"]+"<br>"+weekday_chart["DayType"]
             day_order=[f"{d}<br>{weekday_chart.loc[weekday_chart.TradeDay.eq(d),'DayType'].iloc[0]}" for d in weekdays if (weekday_chart.TradeDay==d).any()]
+            plot_df=weekday_chart.melt(
+                id_vars=["TradeDay","DayLabel","DayType"],
+                value_vars=["WinningTrades","LosingTrades"],
+                var_name="Outcome",
+                value_name="TradeCount"
+            )
+            plot_df["Outcome"]=plot_df["Outcome"].map({
+                "WinningTrades":"Winning trades",
+                "LosingTrades":"Losing trades"
+            })
             fig=px.bar(
-                weekday_chart,
+                plot_df,
                 x="DayLabel",
-                y="PnL",
-                color="DayType",
+                y="TradeCount",
+                color="Outcome",
+                barmode="group",
                 category_orders={"DayLabel":day_order},
-                color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
-                text="DayType",
-                title=f"{title} — realised P&L by day"
+                color_discrete_map={"Winning trades":PROFIT,"Losing trades":LOSS},
+                text="TradeCount",
+                title=f"{title} — winning vs losing trades by day"
             )
             fig.update_traces(textposition="outside",texttemplate="%{text}")
-            fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
+            fig.update_yaxes(dtick=1,title_text="Number of trades")
             fig.update_xaxes(title_text="Day")
-            fig.update_layout(showlegend=False)
-            chart(fig,340)
+            fig.update_layout(legend_title_text="Trade outcome")
+            chart(fig,360)
+            most_win=weekday_chart.loc[weekday_chart.WinningTrades.idxmax()]
+            most_loss=weekday_chart.loc[weekday_chart.LosingTrades.idxmax()]
+            st.info(
+                f"🏆 Most winning day: **{most_win.TradeDay}** ({int(most_win.WinningTrades)} winning trades) • "
+                f"Most loss day: **{most_loss.TradeDay}** ({int(most_loss.LosingTrades)} losing trades). "
+                "This is based on trade count, not P&L amount."
+            )
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net,base=section_data(asset_name)
