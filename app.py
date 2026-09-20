@@ -768,9 +768,15 @@ def section_view(title,emoji,asset_name):
 def overall_trading_day_analysis():
     """Overall weekday analysis using trade counts, not P&L amounts."""
     st.subheader("📅 Overall trading-day analysis")
+    st.caption(
+        "This analysis uses completed-trade counts across Stocks + Equity F&O + Commodities. "
+        "₹ profit/loss amount is not used to decide whether a day is a winning or loss day."
+    )
+
     sell_day_dt=pd.to_datetime(df.sell_date,errors="coerce")
     t=df.assign(TradeDay=sell_day_dt.dt.day_name())
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
+
     day=t.groupby("TradeDay",dropna=True).agg(
         Trades=("pnl","size"),
         WinningTrades=("win","sum"),
@@ -778,6 +784,7 @@ def overall_trading_day_analysis():
     ).reset_index()
     day["WinningTrades"]=day["WinningTrades"].astype(int)
     day["LosingTrades"]=day["LosingTrades"].astype(int)
+    day["WinRate"]=np.where(day.Trades>0,day.WinningTrades/day.Trades*100,0)
     day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
     day["DayType"]=np.where(
@@ -796,8 +803,11 @@ def overall_trading_day_analysis():
         "LosingTrades":"Losing trades"
     })
     plot_df["DayLabel"]=plot_df["TradeDay"]+"<br>"+plot_df["DayType"]
-    day_order=[f"{d}<br>{day.loc[day.TradeDay.eq(d),'DayType'].iloc[0]}"
-               for d in weekdays if (day.TradeDay==d).any()]
+    day_order=[
+        f"{d}<br>{day.loc[day.TradeDay.eq(d),'DayType'].iloc[0]}"
+        for d in weekdays if (day.TradeDay==d).any()
+    ]
+
     fig=px.bar(
         plot_df,
         x="DayLabel",
@@ -817,12 +827,26 @@ def overall_trading_day_analysis():
 
     most_win=day.loc[day.WinningTrades.idxmax()]
     most_loss=day.loc[day.LosingTrades.idxmax()]
+    highest_rate=day.loc[day.WinRate.idxmax()]
+    lowest_rate=day.loc[day.WinRate.idxmin()]
+
     st.info(
-        f"🏆 Most winning day: **{most_win.TradeDay}** "
-        f"({int(most_win.WinningTrades)} winning trades) • "
-        f"Most loss day: **{most_loss.TradeDay}** "
-        f"({int(most_loss.LosingTrades)} losing trades). "
-        "Classification is based only on the number of winning and losing trades, not ₹ P&L."
+        f"🏆 Most winning trades: **{most_win.TradeDay}** "
+        f"({int(most_win.WinningTrades)} wins) • "
+        f"Most losing trades: **{most_loss.TradeDay}** "
+        f"({int(most_loss.LosingTrades)} losses)."
+    )
+
+    st.markdown("#### 📊 Your historical day pattern")
+    table=day[["TradeDay","Trades","WinningTrades","LosingTrades","WinRate","DayType"]].copy()
+    table.columns=["Day","Trades","Winning trades","Losing trades","Win rate","Day type"]
+    table["Win rate"]=table["Win rate"].map(lambda v:f"{v:.1f}%")
+    st.dataframe(table.set_index("Day"),use_container_width=True)
+
+    st.caption(
+        f"Highest historical win rate: **{highest_rate.TradeDay}** ({highest_rate.WinRate:.1f}%) • "
+        f"Lowest historical win rate: **{lowest_rate.TradeDay}** ({lowest_rate.WinRate:.1f}%). "
+        "Use these as historical patterns, not as a standalone rule to enter or skip a trade."
     )
 
 def overall_summary_view():
