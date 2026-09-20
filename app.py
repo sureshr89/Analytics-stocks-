@@ -372,33 +372,24 @@ def last_traded_day_view(x):
     day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
     if day.empty: return
 
-    # Use only charges belonging to the last traded day/report, never the
-    # whole Stocks-year charge total.
-    # Charges may be reported by the broker for a report period rather
-    # than with a daily period_end. For the last traded day, find the
-    # most recent Stocks charge report that contains that trading day.
-    stock_ch=ch[(ch.asset_class=="Stocks") &
-                (ch.charge_name.str.lower()=="total")].copy()
-    day_charges=0.0
-    charge_source="No matching daily/report-period charge found"
-    if not stock_ch.empty:
-        stock_ch["period_start"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").astype("datetime64[ns]")
-        stock_ch["period_end"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").astype("datetime64[ns]")
-        covered=stock_ch[
-            stock_ch["period_start"].notna() &
-            stock_ch["period_end"].notna() &
-            (stock_ch["period_start"].dt.normalize()<=last_day.normalize()) &
-            (stock_ch["period_end"].dt.normalize()>=last_day.normalize())
-        ]
-        if not covered.empty:
-            # Prefer the narrowest report period containing the day.
-            covered=covered.assign(
-                span=(covered["period_end"]-covered["period_start"]).dt.days
-            ).sort_values(["span","period_end"])
-            day_charges=float(covered.iloc[0]["amount"])
-            charge_source=f"Broker charge report: {covered.iloc[0]['period_start'].strftime('%d %b %Y')}–{covered.iloc[0]['period_end'].strftime('%d %b %Y')}"
+    # IMPORTANT: A broker report covering a range (for example 01 Apr–19 Sep)
+    # must NOT be allocated to one trading day. Only an exact one-day charge
+    # report can be used for Last Traded Day net P&L.
+    stock_ch=ch[
+        (ch.asset_class=="Stocks") &
+        (ch.charge_name.str.lower()=="total")
+    ].copy()
+
+    exact_day_ch=stock_ch[
+        pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize().eq(last_day.normalize()) &
+        pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize().eq(last_day.normalize())
+    ].copy()
+
+    has_exact_day_charge=not exact_day_ch.empty
+    day_charges=float(exact_day_ch["amount"].sum()) if has_exact_day_charge else 0.0
+
     gross=float(day.pnl.sum())
-    net=gross-day_charges
+    net=gross-day_charges if has_exact_day_charge else None
     wins=float(day.loc[day.pnl>0,"pnl"].sum())
     losses=float(day.loc[day.pnl<0,"pnl"].sum())
     winning_trades=int((day.pnl>0).sum())
@@ -408,21 +399,27 @@ def last_traded_day_view(x):
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
     st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks • {charge_source}")
+    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks")
 
     a,b,c,d,e=st.columns(5)
     a.metric("Gross P&L",money(gross))
-    b.metric("Charges",money(day_charges))
-    c.metric("Net P&L",money(net))
+    b.metric("Charges",money(day_charges) if has_exact_day_charge else "Not allocated")
+    c.metric("Net P&L",money(net) if net is not None else "Not allocated")
     d.metric("Trades",f"{len(day):,}")
     e.metric("Win rate",pct(win_rate))
 
-    if net>0:
-        st.success(f"🟢 What went good: NET PROFIT of {money(net)} after day-specific charges.")
-    elif net<0:
-        st.error(f"🔴 What went bad: NET LOSS of {money(net)} after day-specific charges.")
+    if has_exact_day_charge:
+        if net>0:
+            st.success(f"🟢 What went good: NET PROFIT of {money(net)} after exact day charges.")
+        elif net<0:
+            st.error(f"🔴 What went bad: NET LOSS of {money(net)} after exact day charges.")
+        else:
+            st.info("🔵 Last traded day was approximately break-even after exact day charges.")
     else:
-        st.info("🔵 Last traded day was approximately break-even after day-specific charges.")
+        st.warning(
+            "⚠️ Day-specific charges are not available. The uploaded broker charge report covers a wider period, "
+            "so its total is NOT allocated to 18 Sep. Gross P&L is shown; day Net P&L is intentionally left unallocated."
+        )
 
     a,b,c,d=st.columns(4)
     a.metric("Winning trades",f"{winning_trades}")
@@ -437,7 +434,6 @@ def last_traded_day_view(x):
         Losses=("pnl",lambda s:int((s<0).sum()))
     )
     sym["WinRate"]=sym.Wins/sym.Trades*100
-    sym["Result"]=np.where(sym.PnL>0,"Profit",np.where(sym.PnL<0,"Loss","Break-even"))
 
     fig=px.bar(
         sym.sort_values("PnL"),
@@ -483,10 +479,17 @@ def last_traded_day_view(x):
     else:
         st.info("No losing trades on the last traded day.")
 
-    st.caption(
-        f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-        f"{breakeven_trades} break-even • gross {money(gross)} − charges {money(day_charges)} = net {money(net)}."
-    )
+    if net is not None:
+        st.caption(
+            f"Day summary: {winning_trades} wins, {losing_trades} losses, "
+            f"{breakeven_trades} break-even • gross {money(gross)} − exact-day charges {money(day_charges)} = net {money(net)}."
+        )
+    else:
+        st.caption(
+            f"Day summary: {winning_trades} wins, {losing_trades} losses, "
+            f"{breakeven_trades} break-even • gross {money(gross)}. "
+            "No exact one-day broker charge report is available, so day net P&L is not allocated."
+        )
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
