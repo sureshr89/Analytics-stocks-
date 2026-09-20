@@ -367,10 +367,20 @@ def money(x):
 def pct(x):
     return f"{float(x):.2f}%"
 
+PLOT_BG="#0b1020"
+PLOT_PAPER="#0b1020"
+PLOT_GRID="#27324d"
+PROFIT="#22c55e"
+LOSS="#ef4444"
+ACCENT="#60a5fa"
+TEXT="#e5e7eb"
+
 def chart_layout(fig,height=300):
     fig.update_layout(height=height,margin=dict(l=10,r=10,t=50,b=10),
-                      paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
-                      font=dict(size=11),legend=dict(orientation="h",y=1.08,x=0))
+                      paper_bgcolor=PLOT_PAPER,plot_bgcolor=PLOT_BG,
+                      font=dict(size=11,color=TEXT),legend=dict(orientation="h",y=1.08,x=0))
+    fig.update_xaxes(gridcolor=PLOT_GRID,zerolinecolor=PLOT_GRID)
+    fig.update_yaxes(gridcolor=PLOT_GRID,zerolinecolor=PLOT_GRID)
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(gridcolor="rgba(148,163,184,.12)",zerolinecolor="rgba(148,163,184,.25)")
     return fig
@@ -444,7 +454,7 @@ def stocks_timing_view(x):
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
     day=t.groupby("BuyDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
     day["WinRate"]=day.WinRate*100
-    day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
+    day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
     if has_time:
@@ -463,14 +473,14 @@ def stocks_timing_view(x):
         exit_=slot_stats("Exit Slot")
         a,b=st.columns(2)
         with a:
-            fig=px.bar(entry,x="Entry Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry time")
+            fig=px.bar(entry,x="Entry Slot",y="PnL",color="PnL",color_continuous_scale=[[0,LOSS],[0.5,ACCENT],[1,PROFIT]],title="Stocks — P&L by entry time")
             fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
             if not entry.empty:
                 good=entry.loc[entry.PnL.idxmax()]; bad=entry.loc[entry.PnL.idxmin()]
                 if good.PnL>0: st.success(f"🔎 What went good: {good['Entry Slot']} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
                 if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(abs(bad.PnL))} across {int(bad.Trades)} trades.")
         with b:
-            fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by exit time")
+            fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale=[[0,LOSS],[0.5,ACCENT],[1,PROFIT]],title="Stocks — P&L by exit time")
             fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
             if not exit_.empty:
                 good=exit_.loc[exit_.PnL.idxmax()]; bad=exit_.loc[exit_.PnL.idxmin()]
@@ -483,7 +493,7 @@ def stocks_timing_view(x):
         hour["Buy time"]=hour.BuyHour.map(lambda v:f"{int(v):02d}:00")
         hour["Exit time"]=hour.SellHour.map(lambda v:f"{int(v):02d}:00")
         hour["Time Pair"]=hour["Buy time"]+" → "+hour["Exit time"]
-        fig=px.bar(hour.sort_values("PnL"),x="PnL",y="Time Pair",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry → exit time")
+        fig=px.bar(hour.sort_values("PnL"),x="PnL",y="Time Pair",orientation="h",color="PnL",color_continuous_scale=[[0,LOSS],[0.5,ACCENT],[1,PROFIT]],title="Stocks — P&L by entry → exit time")
         fig.update_xaxes(tickformat=",.2f"); chart(fig,340)
         if not hour.empty:
             good=hour.loc[hour.PnL.idxmax()]; bad=hour.loc[hour.PnL.idxmin()]
@@ -501,11 +511,11 @@ def stocks_timing_view(x):
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             fig=px.bar(
                 weekday_chart,
-                x="TradeDay",
+                x="BuyDay",
                 y="PnL",
                 color="DayType",
                 category_orders={"BuyDay":weekdays},
-                color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
+                color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
                 title="Stocks — realised P&L by trading day (winning vs loss)"
             )
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
@@ -522,7 +532,7 @@ def weekday_pnl_view(x, title):
         PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")
     ).reset_index()
     day["WinRate"]=day.WinRate*100
-    day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
+    day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
     if not day.empty:
@@ -531,11 +541,11 @@ def weekday_pnl_view(x, title):
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             fig=px.bar(
                 weekday_chart,
-                x="BuyDay",
+                x="TradeDay",
                 y="PnL",
                 color="DayType",
-                category_orders={"BuyDay":weekdays},
-                color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
+                category_orders={"TradeDay":weekdays},
+                color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
                 title=f"{title} — realised P&L by trading day (winning vs loss)"
             )
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
@@ -595,7 +605,7 @@ def section_view(title,emoji,asset_name):
         sv=sym.sort_values("PnL")
         show=pd.concat([sv.head(7),sv.tail(7)]).drop_duplicates()
         fig=px.bar(show,x="PnL",y="symbol",orientation="h",color="PnL",
-                   color_continuous_scale="RdYlGn",
+                   color_continuous_scale=[[0,LOSS],[0.5,ACCENT],[1,PROFIT]],
                    title=f"{title} — top/bottom 7 cumulative P&L by symbol")
         fig.update_xaxes(tickformat=",.2f")
         chart(fig,320)
@@ -605,7 +615,7 @@ def section_view(title,emoji,asset_name):
              .agg(PnL=("pnl","sum"),Trades=("pnl","size")) \
              .sort_values("MonthNum")
     fig=px.bar(monthly,x="Month",y="PnL",color="PnL",
-               color_continuous_scale="RdYlGn",
+               color_continuous_scale=[[0,LOSS],[0.5,ACCENT],[1,PROFIT]],
                title=f"{title} — monthly realised P&L ({current_year})")
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
