@@ -519,23 +519,29 @@ def stocks_timing_view(x):
     )
 
     if not day.empty:
-        good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
+        good=day.loc[day.PnL.idxmax()]
+        bad=day.loc[day.PnL.idxmin()]
         good_day=good.BuyDay; bad_day=bad.BuyDay
         good_wins=int(((t.BuyDay==good_day)&(t.pnl>0)).sum())
         good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
         bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
         bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
-        if good.PnL>0:
+
+        st.markdown("### 🏆 Winning day vs 🔻 Loss day")
+        a,b=st.columns(2)
+        with a:
             st.success(
-                f"🔎 What went good (P&L): {good_day} produced {money(good.PnL)} "
-                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate; "
-                f"{good_wins} wins, {good_losses} losses)."
+                f"🏆 **Winning day: {good_day}**\n\n"
+                f"**P&L:** {money(good.PnL)}  •  **{int(good.Trades)} trades**\n\n"
+                f"**Win rate:** {pct(good.WinRate)}  •  "
+                f"**{good_wins} wins / {good_losses} losses**"
             )
-        if bad.PnL<0:
+        with b:
             st.error(
-                f"🔎 What went bad (P&L): {bad_day} lost {money(abs(bad.PnL))} "
-                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate; "
-                f"{bad_wins} wins, {bad_losses} losses)."
+                f"🔻 **Loss day: {bad_day}**\n\n"
+                f"**P&L:** {money(abs(bad.PnL))} loss  •  **{int(bad.Trades)} trades**\n\n"
+                f"**Win rate:** {pct(bad.WinRate)}  •  "
+                f"**{bad_wins} wins / {bad_losses} losses**"
             )
 
 def weekday_pnl_view(x, title):
@@ -581,17 +587,22 @@ def weekday_pnl_view(x, title):
         good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
         bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
         bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
-        if good.PnL>0:
+
+        st.markdown("### 🏆 Winning day vs 🔻 Loss day")
+        a,b=st.columns(2)
+        with a:
             st.success(
-                f"🔎 What went good (P&L): {good_day} produced {money(good.PnL)} "
-                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate; "
-                f"{good_wins} wins, {good_losses} losses)."
+                f"🏆 **Winning day: {good_day}**\n\n"
+                f"**P&L:** {money(good.PnL)}  •  **{int(good.Trades)} trades**\n\n"
+                f"**Win rate:** {pct(good.WinRate)}  •  "
+                f"**{good_wins} wins / {good_losses} losses**"
             )
-        if bad.PnL<0:
+        with b:
             st.error(
-                f"🔎 What went bad (P&L): {bad_day} lost {money(abs(bad.PnL))} "
-                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate; "
-                f"{bad_wins} wins, {bad_losses} losses)."
+                f"🔻 **Loss day: {bad_day}**\n\n"
+                f"**P&L:** {money(abs(bad.PnL))} loss  •  **{int(bad.Trades)} trades**\n\n"
+                f"**Win rate:** {pct(bad.WinRate)}  •  "
+                f"**{bad_wins} wins / {bad_losses} losses**"
             )
 
 def section_view(title,emoji,asset_name):
