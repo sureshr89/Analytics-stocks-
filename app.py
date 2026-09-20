@@ -376,9 +376,18 @@ ACCENT="#60a5fa"
 TEXT="#e5e7eb"
 
 def chart_layout(fig,height=300):
-    fig.update_layout(height=height,margin=dict(l=10,r=10,t=50,b=10),
-                      paper_bgcolor=PLOT_PAPER,plot_bgcolor=PLOT_BG,
-                      font=dict(size=11,color=TEXT),legend=dict(orientation="h",y=1.08,x=0))
+    fig.update_layout(
+        height=height,
+        margin=dict(l=10,r=10,t=50,b=10),
+        paper_bgcolor=PLOT_PAPER,
+        plot_bgcolor=PLOT_BG,
+        font=dict(size=11,color=TEXT),
+        legend=dict(
+            orientation="h",y=1.08,x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(color=TEXT)
+        )
+    )
     fig.update_xaxes(gridcolor=PLOT_GRID,zerolinecolor=PLOT_GRID)
     fig.update_yaxes(gridcolor=PLOT_GRID,zerolinecolor=PLOT_GRID)
     fig.update_xaxes(showgrid=False)
@@ -450,11 +459,11 @@ def stocks_timing_view(x):
     has_sell_time=((sell_dt.dt.hour.fillna(0)!=0)|(sell_dt.dt.minute.fillna(0)!=0)|(sell_dt.dt.second.fillna(0)!=0))
     has_time=bool(has_buy_time.any() or has_sell_time.any())
 
-    t=x.assign(BuyDay=buy_dt.dt.day_name(),HoldHours=(sell_dt-buy_dt).dt.total_seconds()/3600)
+    t=x.assign(TradeDay=sell_dt.dt.day_name(),HoldHours=(sell_dt-buy_dt).dt.total_seconds()/3600)
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
-    day=t.groupby("BuyDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
+    day=t.groupby("TradeDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
     day["WinRate"]=day.WinRate*100
-    day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
+    day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
     if has_time:
@@ -511,10 +520,10 @@ def stocks_timing_view(x):
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             fig=px.bar(
                 weekday_chart,
-                x="BuyDay",
+                x="TradeDay",
                 y="PnL",
                 color="DayType",
-                category_orders={"BuyDay":weekdays},
+                category_orders={"TradeDay":weekdays},
                 color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
                 title="Stocks — realised P&L by trading day (winning vs loss)"
             )
