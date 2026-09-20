@@ -48,10 +48,10 @@ def conn():
     c.execute("""CREATE TABLE IF NOT EXISTS sources(
       source_hash TEXT PRIMARY KEY, filename TEXT, asset_class TEXT,
       period_start TEXT, period_end TEXT, uploaded_at TEXT, trade_count INTEGER,
-      gross_pnl REAL, report_gross_pnl REAL, report_charges REAL)
+      gross_pnl REAL, report_gross_pnl REAL, report_charges REAL)""")
     scols={r[1] for r in c.execute("pragma table_info(sources)").fetchall()}
     if "report_gross_pnl" not in scols: c.execute("alter table sources add column report_gross_pnl REAL")
-    if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")""")
+    if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
