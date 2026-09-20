@@ -436,13 +436,19 @@ def stocks_timing_view(x):
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
 def last_traded_day_view(x, asset_name="Stocks"):
-    latest_uploaded=x.sell_date.dropna().max()
+    # Last Traded Day always uses the full asset section data, not optional
+    # sidebar filters. This keeps the day-level view visible for every section.
+    day_source=df[df.asset_class.eq(asset_name)].copy()
+    day_source=day_source[day_source.sell_date.dt.year.eq(current_year)].copy()
+    latest_uploaded=day_source.sell_date.dropna().max()
     if pd.isna(latest_uploaded):
+        st.info(f"No completed {asset_name} trading day is available in the uploaded data.")
         return
 
     last_day=latest_uploaded
-    day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
+    day=day_source[day_source.sell_date.dt.normalize()==last_day.normalize()].copy()
     if day.empty:
+        st.info(f"No completed {asset_name} trades are available for {last_day.strftime('%d %b %Y')}.")
         return
 
     # Never invent a trading day or trade-level statistics from a screenshot
