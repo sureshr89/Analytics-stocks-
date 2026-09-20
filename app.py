@@ -435,7 +435,8 @@ def section_view(title,emoji,asset_name):
     observation_text=f"Gross P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
-\n    # Perfect / failed stock records
+
+    # Perfect / failed stock records
     perfect=table[(table["WinRate"]==100)].copy()
     failed=table[(table["FailureRate"]==100)].copy()
 
