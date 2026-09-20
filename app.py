@@ -351,8 +351,7 @@ with tabs[3]:
     if not warnings:
         st.success("✅ No major rule-based warnings for the selected filters.")
     for title,msg in warnings:
-        st.warning(f"**{title}**  
-{msg}")
+        st.warning(f"**{title}**  \\n{msg}")
     st.caption("These are statistical review prompts from your trade history, not predictions or financial advice.")
     st.subheader("Largest losses to review")
     st.dataframe(f.nsmallest(15,"pnl")[["sell_date","asset_class","instrument","symbol","qty","buy_price","sell_price","pnl","remark"]].style.format({"pnl":"₹{:,.0f}","buy_price":"₹{:,.2f}","sell_price":"₹{:,.2f}"}),hide_index=True,use_container_width=True)
