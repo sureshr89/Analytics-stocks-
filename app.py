@@ -401,7 +401,7 @@ def stocks_timing_view(x):
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
-def last_traded_day_view(x):
+def last_traded_day_view(x, asset_name="Stocks"):
     last_day=x.sell_date.dropna().max()
     day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
     if day.empty: return
@@ -410,7 +410,7 @@ def last_traded_day_view(x):
     # must NOT be allocated to one trading day. Only an exact one-day charge
     # report can be used for Last Traded Day net P&L.
     stock_ch=ch[
-        (ch.asset_class=="Stocks") &
+        (ch.asset_class==asset_name) &
         (ch.charge_name.str.lower()=="total")
     ].copy()
 
@@ -446,13 +446,15 @@ def last_traded_day_view(x):
     # come from the user's day-specific Groww P&L/charge view and must take
     # precedence over the broader report total.
     confirmed_day_charges={
-        "2026-09-18":1574.06,
+        ("Stocks","2026-09-18"):1574.06,
+        ("F&O","2026-09-18"):33780.52,
     }
 
     has_exact_day_charge=not exact_day_ch.empty
     day_key=last_day.strftime("%Y-%m-%d")
-    if day_key in confirmed_day_charges:
-        day_charges=float(confirmed_day_charges[day_key])
+    confirmed_key=(asset_name,day_key)
+    if confirmed_key in confirmed_day_charges:
+        day_charges=float(confirmed_day_charges[confirmed_key])
         has_exact_day_charge=True
     else:
         day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
@@ -468,7 +470,7 @@ def last_traded_day_view(x):
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
     st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks")
+    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in {asset_name}")
 
     a,b,c,d,e=st.columns(5)
     a.metric("Gross P&L",money(gross))
@@ -496,7 +498,7 @@ def last_traded_day_view(x):
     c.metric("Break-even",f"{breakeven_trades}")
     d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
 
-    st.subheader("📊 Last traded day — P&L by stock")
+    st.subheader(f"📊 Last traded day — P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
     sym=day.groupby("symbol",as_index=False).agg(
         PnL=("pnl","sum"),Trades=("pnl","size"),
         Wins=("pnl",lambda s:int((s>0).sum())),
@@ -508,7 +510,7 @@ def last_traded_day_view(x):
         sym.sort_values("PnL"),
         x="PnL",y="symbol",orientation="h",color="PnL",
         color_continuous_scale="RdYlGn",
-        title="Last traded day — gross P&L by stock"
+        title=f"Last traded day — gross P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
     )
     fig.update_xaxes(tickformat=",.2f")
     chart(fig,max(320,min(700,260+len(sym)*32)))
@@ -672,10 +674,10 @@ def section_view(title,emoji,asset_name):
             + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in q.iterrows())
         )
 
+    last_traded_day_view(x, asset_name)
     if asset_name=="Stocks":
-        last_traded_day_view(x)
         stocks_timing_view(x)
-    st.caption("Note: broker charges are available at section/report level in the current EOD format, so they are not falsely allocated to individual symbols.")
+    st.caption(f"Note: broker charges are reconciled at {asset_name}/report level and are not allocated to individual symbols.")
 
 tabs=st.tabs(["📈 Stocks","🎯 Equity F&O","⛽ Commodities"])
 with tabs[0]:
