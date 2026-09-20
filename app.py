@@ -85,6 +85,20 @@ def conn():
     scols={r[1] for r in c.execute("pragma table_info(sources)").fetchall()}
     if "report_gross_pnl" not in scols: c.execute("alter table sources add column report_gross_pnl REAL")
     if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")
+    # Repair source periods from actual trade dates. Broker report headers can
+    # contain financial-year/date-range text unrelated to the report's trade
+    # period (for example a Last Trading Day report).
+    srcs=c.execute("select source_hash from sources").fetchall()
+    for (src_hash,) in srcs:
+        bounds=c.execute(
+            "select min(date(sell_date)), max(date(sell_date)) from trades where source_hash=? and sell_date is not null",
+            (src_hash,)
+        ).fetchone()
+        if bounds and bounds[0] and bounds[1]:
+            c.execute(
+                "update sources set period_start=?, period_end=? where source_hash=?",
+                (bounds[0],bounds[1],src_hash)
+            )
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
@@ -178,12 +192,28 @@ def extract(uploaded,filename):
             if not pd.isna(amt) and (any(k in ll for k in ["exchange transaction","sebi","stt","ctt","stamp duty","ipft","brokerage","gst","dp charges","mis charges"]) or ll=="total"):
                 charges.append((label,float(amt)))
             if ll=="total" and not pd.isna(amt): report_charges=float(amt)
+    # Prefer the actual completed-trade period over dates found in
+    # report headers. This avoids treating a Last Trading Day report as a
+    # financial-year report simply because the header mentions 01 Apr.
+    trade_dates=[]
+    for rr in rows:
+        for key in ("buy_date","sell_date"):
+            if rr.get(key):
+                trade_dates.append(pd.to_datetime(rr[key],errors="coerce"))
+    trade_dates=[d for d in trade_dates if not pd.isna(d)]
+    if trade_dates:
+        ps=min(trade_dates).strftime("%Y-%m-%d")
+        pe=max(trade_dates).strftime("%Y-%m-%d")
+
     return sh,asset,ps,pe,rows,charges,report_gross,report_charges
 
 def save(uploaded,filename):
     sh,asset,ps,pe,rows,charges,report_gross,report_charges=extract(uploaded,filename); c=conn()
     existing=c.execute('select source_hash,period_start,period_end from sources where asset_class=?',(asset,)).fetchall()
     replace_hashes=[]; covered=False
+    # Re-process an identical source after parser/reconciliation fixes.
+    if any(old_hash==sh for old_hash,_,_ in existing):
+        replace_hashes.append(sh)
     if ps and pe:
         nps=pd.to_datetime(ps); npe=pd.to_datetime(pe)
         for old_hash,ops,ope in existing:
