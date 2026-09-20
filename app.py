@@ -448,11 +448,30 @@ def stocks_timing_view(x):
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
 def last_traded_day_view(x, asset_name="Stocks"):
+    # Last trading day must be derived from the actual completed trade rows,
+    # not from the report filename/end date. Weekends/holidays can make the
+    # broker report end date differ from the latest trading session.
     latest_uploaded=x.sell_date.dropna().max()
     if pd.isna(latest_uploaded):
         return
 
-    last_day=latest_uploaded
+    last_day=latest_uploaded.normalize()
+
+    # Show the broker/report coverage separately so users can immediately see
+    # why e.g. a report ending 19 Sep can correctly have 18 Sep as its last
+    # trading day.
+    src_meta=pd.read_sql_query(
+        "select period_start,period_end,report_period_start,report_period_end "
+        "from sources where asset_class=?",
+        conn(), params=(asset_name,)
+    )
+    report_ends=[]
+    if not src_meta.empty:
+        for col in ["report_period_end","period_end"]:
+            vals=pd.to_datetime(src_meta[col],errors="coerce").dropna()
+            if not vals.empty:
+                report_ends.append(vals.max().normalize())
+    report_end=max(report_ends) if report_ends else None
     day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
     if day.empty:
         return
@@ -502,18 +521,30 @@ def last_traded_day_view(x, asset_name="Stocks"):
     win_rate=float((day.pnl>0).mean()*100)
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
-    st.subheader("🗓️ Last traded day")
-    st.caption(
-        f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded "
-        f"{asset_name} trade data • day P&L is calculated only from trades on this date"
-    )
+    st.subheader("🗓️ Last trading day")
+    if report_end is not None and report_end != last_day:
+        st.caption(
+            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
+            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
+            "the last trading day is taken from the latest actual Sell Date, "
+            "not from the report filename/date range."
+        )
+    else:
+        st.caption(
+            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
+            f"latest completed trading day in uploaded {asset_name} data"
+        )
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Net realised P&L",money(net) if net is not None else "Not available")
-    b.metric("Realised P&L",money(gross))
-    c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
-    d.metric("Trades",f"{len(day):,}")
-    e.metric("Win rate",pct(win_rate))
+    a.metric("Last trading day",last_day.strftime("%d %b %Y"))
+    b.metric("Net realised P&L",money(net) if net is not None else "Not available")
+    c.metric("Realised P&L",money(gross))
+    d.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
+    e.metric("Trades",f"{len(day):,}")
+    # Win rate is shown in the detailed day metrics below to keep the date
+    # visible as the first card and prevent the trading date from being
+    # confused with the broker report end date.
+    st.metric("Win rate",pct(win_rate))
 
     if has_exact_day_charge:
         if net>0:
