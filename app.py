@@ -539,6 +539,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
     # Keep the verified broker summary authoritative for the confirmed day.
     confirmed_key=(asset_name,last_day.strftime("%Y-%m-%d"))
     confirmed=confirmed_day_summary.get(confirmed_key)
+    summary=confirmed
     if confirmed:
         gross=float(confirmed["gross"])
         day_charges=float(confirmed["charges"])
