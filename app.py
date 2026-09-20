@@ -146,19 +146,34 @@ def extract(uploaded,filename):
     ps,pe=report_ps,report_pe
     lowname=filename.lower()
     asset="Commodities" if "commodit" in lowname else ("Stocks" if "stocks" in lowname else "F&O")
-    trade=None
+    # Some broker reports contain multiple trade-table sections on one
+    # sheet (for example Futures followed by Options). Read every valid
+    # section so no completed trades are silently dropped.
+    trade_frames=[]
     for shn in xls.sheet_names:
         raw=pd.read_excel(io.BytesIO(b),sheet_name=shn,header=None)
-        header=None
+        header_rows=[]
         for i,row in raw.iterrows():
             vals=[str(x).strip().lower() for x in row.tolist()]
-            if "buy date" in vals and "sell date" in vals: header=i; break
-        if header is not None:
-            d=raw.iloc[header+1:].copy()
-            d.columns=[str(x).strip() if not pd.isna(x) else f"col_{j}" for j,x in enumerate(raw.iloc[header])]
-            first=d.columns[0]; d=d[d[first].notna()]
-            d=d[~d[first].astype(str).str.contains("total|unrealised trades|disclaimer|groww",case=False,na=False)]
-            trade=d; break
+            if "buy date" in vals and "sell date" in vals:
+                header_rows.append(i)
+        for n,header in enumerate(header_rows):
+            next_header=header_rows[n+1] if n+1<len(header_rows) else len(raw)
+            d=raw.iloc[header+1:next_header].copy()
+            d.columns=[
+                str(x).strip() if not pd.isna(x) else f"col_{j}"
+                for j,x in enumerate(raw.iloc[header])
+            ]
+            first=d.columns[0]
+            d=d[d[first].notna()].copy()
+            d=d[~d[first].astype(str).str.contains(
+                "total|unrealised trades|unrealized trades|disclaimer|groww",
+                case=False,na=False
+            )]
+            if not d.empty:
+                trade_frames.append(d)
+    trade=pd.concat(trade_frames,ignore_index=True,sort=False) if trade_frames else None
+
     rows=[]
     if trade is not None:
         cols={str(c).lower():c for c in trade.columns}
@@ -269,12 +284,12 @@ def save(uploaded,filename):
     # Last Trading Day appear later than the latest trade in the new file.
     if report_ps and report_pe:
         c.execute(
-            'delete from trades where asset_class=? and sell_date>=? and sell_date<=?',
+            'delete from trades where asset_class=? and date(sell_date)>=date(?) and date(sell_date)<=date(?)',
             (asset,report_ps,report_pe)
         )
     elif ps and pe:
         c.execute(
-            'delete from trades where asset_class=? and sell_date>=? and sell_date<=?',
+            'delete from trades where asset_class=? and date(sell_date)>=date(?) and date(sell_date)<=date(?)',
             (asset,ps,pe)
         )
     for r in rows: c.execute('insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(r[k] for k in ['trade_hash','source_hash','asset_class','symbol','instrument','option_type','strike','expiry','qty','buy_date','buy_price','buy_value','sell_date','sell_price','sell_value','pnl','remark','uploaded_at']))
@@ -377,6 +392,9 @@ def chart(fig,height=300):
     )
 
 def section_data(name):
+    # Summary cards use the complete current-year asset section. Sidebar
+    # filters are applied to the detailed charts below, because broker-level
+    # charges cannot be safely allocated to an individual symbol/instrument.
     x=f[f.asset_class.eq(name)].copy()
     charges=float(ch_year[ch_year.asset_class.eq(name)].amount.sum()) if not ch_year.empty else 0.0
 
@@ -546,7 +564,11 @@ def weekday_pnl_view(x, title):
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
     st.header(f"{emoji} {title}")
-    st.caption(f"{current_year} only • Realised P&L uses broker-reported EOD realised P&L when available • Net realised P&L = Realised P&L − reported charges")
+    st.caption(
+        f"{current_year} only • Summary cards use complete broker-report totals. "
+        "Charts and weekday analysis follow the sidebar filters • "
+        "Net realised P&L = Realised P&L − reported charges"
+    )
 
     if x.empty:
         st.info(f"No {title} trades loaded for {current_year}.")
