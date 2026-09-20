@@ -568,6 +568,10 @@ def section_view(title,emoji,asset_name):
     else:
         st.info(f"🔵 {title}: {current_year} is approximately break-even after reported charges.")
 
+    # Show the latest completed trading day immediately after the section
+    # summary, so the day-level reconciliation is not buried below charts.
+    last_traded_day_view(x, asset_name)
+
     # Top cumulative profit/loss cards
     sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("pnl",lambda s:(s<0).sum()))
     sym["WinRate"]=sym.Wins/sym.Trades*100
@@ -674,7 +678,6 @@ def section_view(title,emoji,asset_name):
             + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in q.iterrows())
         )
 
-    last_traded_day_view(x, asset_name)
     if asset_name=="Stocks":
         stocks_timing_view(x)
     st.caption(f"Note: broker charges are reconciled at {asset_name}/report level and are not allocated to individual symbols.")
