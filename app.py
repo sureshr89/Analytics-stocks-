@@ -784,6 +784,7 @@ def overall_trading_day_analysis():
     ).reset_index()
     day["WinningTrades"]=day["WinningTrades"].astype(int)
     day["LosingTrades"]=day["LosingTrades"].astype(int)
+    day["BreakEvenTrades"]=day["Trades"]-day["WinningTrades"]-day["LosingTrades"]
     day["WinRate"]=np.where(day.Trades>0,day.WinningTrades/day.Trades*100,0)
     day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
@@ -794,13 +795,14 @@ def overall_trading_day_analysis():
 
     plot_df=day.melt(
         id_vars=["TradeDay","DayType"],
-        value_vars=["WinningTrades","LosingTrades"],
+        value_vars=["WinningTrades","LosingTrades","BreakEvenTrades"],
         var_name="Outcome",
         value_name="TradeCount"
     )
     plot_df["Outcome"]=plot_df["Outcome"].map({
         "WinningTrades":"Winning trades",
-        "LosingTrades":"Losing trades"
+        "LosingTrades":"Losing trades",
+        "BreakEvenTrades":"Break-even trades"
     })
     plot_df["DayLabel"]=plot_df["TradeDay"]+"<br>"+plot_df["DayType"]
     day_order=[
@@ -815,9 +817,9 @@ def overall_trading_day_analysis():
         color="Outcome",
         barmode="group",
         category_orders={"DayLabel":day_order},
-        color_discrete_map={"Winning trades":PROFIT,"Losing trades":LOSS},
+        color_discrete_map={"Winning trades":PROFIT,"Losing trades":LOSS,"Break-even trades":"#94a3b8"},
         text="TradeCount",
-        title="Overall — winning vs losing trades by day"
+        title="Overall — all trades by day"
     )
     fig.update_traces(textposition="outside",texttemplate="%{text}")
     fig.update_yaxes(dtick=1,title_text="Number of trades")
@@ -838,8 +840,8 @@ def overall_trading_day_analysis():
     )
 
     st.markdown("#### 📊 Your historical day pattern")
-    table=day[["TradeDay","Trades","WinningTrades","LosingTrades","WinRate","DayType"]].copy()
-    table.columns=["Day","Trades","Winning trades","Losing trades","Win rate","Day type"]
+    table=day[["TradeDay","Trades","WinningTrades","LosingTrades","BreakEvenTrades","WinRate","DayType"]].copy()
+    table.columns=["Day","Trades","Winning trades","Losing trades","Break-even trades","Win rate","Day type"]
     table["Win rate"]=table["Win rate"].map(lambda v:f"{v:.1f}%")
     st.dataframe(table.set_index("Day"),use_container_width=True)
 
