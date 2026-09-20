@@ -48,7 +48,10 @@ def conn():
     c.execute("""CREATE TABLE IF NOT EXISTS sources(
       source_hash TEXT PRIMARY KEY, filename TEXT, asset_class TEXT,
       period_start TEXT, period_end TEXT, uploaded_at TEXT, trade_count INTEGER,
-      gross_pnl REAL)""")
+      gross_pnl REAL, report_gross_pnl REAL, report_charges REAL)
+    scols={r[1] for r in c.execute("pragma table_info(sources)").fetchall()}
+    if "report_gross_pnl" not in scols: c.execute("alter table sources add column report_gross_pnl REAL")
+    if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")""")
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
@@ -121,6 +124,17 @@ def extract(uploaded,filename):
               sell_price=pd.to_numeric(r[csp],errors="coerce"),sell_value=pd.to_numeric(r[csv],errors="coerce"),
               pnl=float(pnl),remark=str(r[cr]) if cr and not pd.isna(r[cr]) else "",
               uploaded_at=datetime.now().isoformat(timespec="seconds")))
+    report_gross=None; report_charges=None; in_realized=False
+    for _,row in raw0.iterrows():
+        label=str(row.iloc[0]).strip() if not pd.isna(row.iloc[0]) else ""; ll=label.lower()
+        if ll=="realised p&l":
+            in_realized=True
+            v=pd.to_numeric(row.iloc[1],errors="coerce") if len(row)>1 else np.nan
+            if not pd.isna(v): report_gross=float(v); in_realized=False
+        elif in_realized and ll=="total":
+            v=pd.to_numeric(row.iloc[1],errors="coerce") if len(row)>1 else np.nan
+            if not pd.isna(v): report_gross=float(v)
+            in_realized=False
     charges=[]; in_ch=False
     for _,row in raw0.iterrows():
         label=str(row.iloc[0]).strip() if not pd.isna(row.iloc[0]) else ""; ll=label.lower()
@@ -130,7 +144,8 @@ def extract(uploaded,filename):
             amt=pd.to_numeric(row.iloc[1],errors="coerce") if len(row)>1 else np.nan
             if not pd.isna(amt) and (any(k in ll for k in ["exchange transaction","sebi","stt","ctt","stamp duty","ipft","brokerage","gst","dp charges","mis charges"]) or ll=="total"):
                 charges.append((label,float(amt)))
-    return sh,asset,ps,pe,rows,charges
+            if ll=="total" and not pd.isna(amt): report_charges=float(amt)
+    return sh,asset,ps,pe,rows,charges,report_gross,report_charges
 
 def save(uploaded,filename):
     sh,asset,ps,pe,rows,charges,report_gross,report_charges=extract(uploaded,filename); c=conn()
