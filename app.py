@@ -44,7 +44,8 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   .plotly,
   .plot-container,
   .svg-container {
-    touch-action: pan-y !important;
+    touch-action: none !important;
+    overscroll-behavior: none !important;
   }
 }
 </style>
@@ -261,6 +262,7 @@ def chart(fig,height=300):
         chart_layout(fig,height),
         use_container_width=True,
         config={
+            "staticPlot":True,
             "displayModeBar":False,
             "responsive":True,
             "scrollZoom":False,
