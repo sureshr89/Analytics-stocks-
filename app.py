@@ -529,23 +529,41 @@ def last_traded_day_view(x, asset_name="Stocks"):
     # used for the day's Net P&L. This handles reports such as 17–19 Sep
     # where the only completed trades are on 17 Sep.
     source_meta=pd.read_sql_query(
-        "select source_hash,report_period_start,report_period_end,report_charges "
-        "from sources where asset_class=?",
+        "select source_hash,period_start,period_end,report_period_start,report_period_end,"
+        "report_charges,uploaded_at from sources where asset_class=?",
         conn(), params=(asset_name,)
     )
-    source_meta["report_period_start"]=pd.to_datetime(
-        source_meta["report_period_start"],errors="coerce"
-    ).dt.normalize()
-    source_meta["report_period_end"]=pd.to_datetime(
-        source_meta["report_period_end"],errors="coerce"
-    ).dt.normalize()
+    for col in ["period_start","period_end","report_period_start","report_period_end"]:
+        source_meta[col]=pd.to_datetime(
+            source_meta[col],errors="coerce"
+        ).dt.normalize()
+
+    # Read the actual stored broker charge rows. The explicit Total row is
+    # preferred; if it was not parsed into the database, sum the individual
+    # charge components instead. This makes the Last Trading Day view robust
+    # to broker Excel layout variations.
+    charge_rows=ch[ch.asset_class.eq(asset_name)].copy()
+    charge_rows["amount_num"]=pd.to_numeric(charge_rows["amount"],errors="coerce")
+    charge_rows["charge_name_lc"]=charge_rows["charge_name"].astype(str).str.strip().str.lower()
+    charge_totals={}
+    for sh,grp in charge_rows.groupby("source_hash",dropna=False):
+        total_rows=grp[grp["charge_name_lc"].eq("total")]
+        if not total_rows.empty:
+            charge_totals[str(sh)]=float(total_rows["amount_num"].sum())
+        else:
+            component_rows=grp[~grp["charge_name_lc"].eq("total")]
+            charge_totals[str(sh)]=float(component_rows["amount_num"].sum())
 
     eligible_sources=[]
     for _,src in source_meta.iterrows():
         sh=str(src["source_hash"])
-        rps=src["report_period_start"]
-        rpe=src["report_period_end"]
         report_charge=pd.to_numeric(src["report_charges"],errors="coerce")
+        if sh in charge_totals:
+            report_charge=charge_totals[sh]
+
+        rps=src["report_period_start"] if not pd.isna(src["report_period_start"]) else src["period_start"]
+        rpe=src["report_period_end"] if not pd.isna(src["report_period_end"]) else src["period_end"]
+
         if pd.isna(rps) or pd.isna(rpe) or pd.isna(report_charge):
             continue
         if not (rps <= last_day.normalize() <= rpe):
@@ -557,16 +575,13 @@ def last_traded_day_view(x, asset_name="Stocks"):
         ).dt.normalize()
         src_trades=src_trades[src_trades["sell_day"].notna()]
 
-        # Use report-level charges only when every completed trade from that
-        # source falls on the Last Trading Day. Never allocate a multi-day
-        # charge total across days when the report contains other trading
-        # dates.
+        # Never allocate a multi-day charge total. We use a source's charges
+        # for the Last Trading Day only when every completed trade represented
+        # by that source is on that same day.
         if not src_trades.empty and src_trades["sell_day"].eq(last_day.normalize()).all():
             uploaded_at=str(src["uploaded_at"]) if not pd.isna(src["uploaded_at"]) else ""
             eligible_sources.append((uploaded_at,sh,float(report_charge)))
 
-    # Prefer the most recently imported eligible source. This means the newest
-    # broker file is the source of truth when multiple matching uploads exist.
     eligible_sources.sort(key=lambda item: item[0])
     has_exact_day_charge=bool(eligible_sources)
     day_charges=eligible_sources[-1][2] if has_exact_day_charge else 0.0
