@@ -439,6 +439,11 @@ def last_traded_day_view(x, asset_name="Stocks"):
     # Broker-confirmed Last Trading Day summaries take precedence over the
     # latest uploaded trade-row date. This matters when the uploaded EOD
     # trade export lags the broker's Last Trading Day report by one day.
+    # Initialize these before any branch so Stocks/Commodities cannot hit
+    # an unbound local when no confirmed summary exists for that asset.
+    confirmed=None
+    summary=None
+    has_trade_rows=False
     confirmed_day_summary={
         ("Stocks","2026-09-18"): {
             "gross":22369.25, "charges":1574.06, "net":20795.19,
