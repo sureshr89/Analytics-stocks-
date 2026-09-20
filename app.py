@@ -255,49 +255,68 @@ def section_data(name):
 
 def stocks_timing_view(x):
     st.subheader("⏰ Entry, exit & weekday analysis")
-    st.caption("Uses actual Buy Date and Sell Date timestamps. New uploads preserve time to the second.")
     buy_dt=pd.to_datetime(x.buy_date,errors="coerce")
     sell_dt=pd.to_datetime(x.sell_date,errors="coerce")
-    t=x.assign(BuyTime=buy_dt.dt.hour + buy_dt.dt.minute/60, SellTime=sell_dt.dt.hour + sell_dt.dt.minute/60, BuyHour=buy_dt.dt.hour, SellHour=sell_dt.dt.hour, BuyDay=buy_dt.dt.day_name(), HoldHours=(sell_dt-buy_dt).dt.total_seconds()/3600)
-    t["Entry Slot"]=pd.cut(t.BuyTime,[-0.01,10,12,14,16,24],labels=["Before 10:00","10:00–12:00","12:00–14:00","14:00–16:00","After 16:00"])
-    t["Exit Slot"]=pd.cut(t.SellTime,[-0.01,10,12,14,16,24],labels=["Before 10:00","10:00–12:00","12:00–14:00","14:00–16:00","After 16:00"])
-    def slot_stats(col):
-        z=t.dropna(subset=[col]).groupby(col,observed=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
-        z["WinRate"]=z.WinRate*100
-        return z[z.Trades>0]
-    entry=slot_stats("Entry Slot"); exit_=slot_stats("Exit Slot")
+    has_buy_time=((buy_dt.dt.hour.fillna(0)!=0)|(buy_dt.dt.minute.fillna(0)!=0)|(buy_dt.dt.second.fillna(0)!=0))
+    has_sell_time=((sell_dt.dt.hour.fillna(0)!=0)|(sell_dt.dt.minute.fillna(0)!=0)|(sell_dt.dt.second.fillna(0)!=0))
+    has_time=bool(has_buy_time.any() or has_sell_time.any())
+
+    t=x.assign(BuyDay=buy_dt.dt.day_name(),HoldHours=(sell_dt-buy_dt).dt.total_seconds()/3600)
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
     day=t.groupby("BuyDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
     day["WinRate"]=day.WinRate*100
     day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
-    a,b=st.columns(2)
-    with a:
-        fig=px.bar(entry,x="Entry Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry time")
-        fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
-        good=entry.loc[entry.PnL.idxmax()]; bad=entry.loc[entry.PnL.idxmin()]
-        if good.PnL>0: st.success(f"🔎 What went good: {good['Entry Slot']} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
-    with b:
-        fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by exit time")
-        fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
-        good=exit_.loc[exit_.PnL.idxmax()]; bad=exit_.loc[exit_.PnL.idxmin()]
-        if good.PnL>0: st.success(f"🔎 What went good: {good['Exit Slot']} exits produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Exit Slot']} exits lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+
+    if has_time:
+        t=t.assign(BuyTime=buy_dt.dt.hour+buy_dt.dt.minute/60+buy_dt.dt.second/3600,
+                   SellTime=sell_dt.dt.hour+sell_dt.dt.minute/60+sell_dt.dt.second/3600,
+                   BuyHour=buy_dt.dt.hour,SellHour=sell_dt.dt.hour)
+        t["Entry Slot"]=pd.cut(t.BuyTime,[-0.01,10,12,14,16,24],labels=["Before 10:00","10:00–12:00","12:00–14:00","14:00–16:00","After 16:00"])
+        t["Exit Slot"]=pd.cut(t.SellTime,[-0.01,10,12,14,16,24],labels=["Before 10:00","10:00–12:00","12:00–14:00","14:00–16:00","After 16:00"])
+
+        def slot_stats(col):
+            z=t.dropna(subset=[col]).groupby(col,observed=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
+            z["WinRate"]=z.WinRate*100
+            return z[z.Trades>0]
+
+        entry=slot_stats("Entry Slot")
+        exit_=slot_stats("Exit Slot")
+        a,b=st.columns(2)
+        with a:
+            fig=px.bar(entry,x="Entry Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry time")
+            fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
+            if not entry.empty:
+                good=entry.loc[entry.PnL.idxmax()]; bad=entry.loc[entry.PnL.idxmin()]
+                if good.PnL>0: st.success(f"🔎 What went good: {good['Entry Slot']} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
+                if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+        with b:
+            fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by exit time")
+            fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
+            if not exit_.empty:
+                good=exit_.loc[exit_.PnL.idxmax()]; bad=exit_.loc[exit_.PnL.idxmin()]
+                if good.PnL>0: st.success(f"🔎 What went good: {good['Exit Slot']} exits produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
+                if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Exit Slot']} exits lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+
+        st.subheader("🕐 Entry → exit time combinations")
+        hour=t.dropna(subset=["BuyHour","SellHour"]).groupby(["BuyHour","SellHour"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
+        hour["WinRate"]=hour.WinRate*100
+        hour["Buy time"]=hour.BuyHour.map(lambda v:f"{int(v):02d}:00")
+        hour["Exit time"]=hour.SellHour.map(lambda v:f"{int(v):02d}:00")
+        st.dataframe(hour.sort_values("PnL",ascending=False)[["Buy time","Exit time","Trades","WinRate","PnL"]].rename(columns={"WinRate":"Win rate","PnL":"P&L"}).style.format({"Win rate":"{:.2f}%","P&L":"₹{:,.2f}"}),use_container_width=True,hide_index=True)
+        hold=t.dropna(subset=["HoldHours"])
+        if not hold.empty and hold.HoldHours.notna().any():
+            st.caption(f"Average holding time: {hold.HoldHours.mean():.2f} hours • Median: {hold.HoldHours.median():.2f} hours.")
+    else:
+        st.info("⏰ Entry/exit time analysis is waiting for EOD files that contain actual timestamps. The currently stored trade dates contain dates only, so no artificial time performance is shown.")
+
     fig=px.bar(day,x="BuyDay",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry weekday")
     fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
-    st.subheader("🕐 Entry → exit time combinations")
-    hour=t.groupby(["BuyHour","SellHour"],dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
-    hour["WinRate"]=hour.WinRate*100
-    hour["Buy time"]=hour.BuyHour.map(lambda v:f"{int(v):02d}:00")
-    hour["Exit time"]=hour.SellHour.map(lambda v:f"{int(v):02d}:00")
-    st.dataframe(hour.sort_values("PnL",ascending=False)[["Buy time","Exit time","Trades","WinRate","PnL"]].rename(columns={"WinRate":"Win rate","PnL":"P&L"}).style.format({"Win rate":"{:.2f}%","P&L":"₹{:,.2f}"}),use_container_width=True,hide_index=True)
-    hold=t.dropna(subset=["HoldHours"])
-    if not hold.empty: st.caption(f"Average holding time: {hold.HoldHours.mean():.2f} hours • Median: {hold.HoldHours.median():.2f} hours.")
+
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
     st.header(f"{emoji} {title}")
