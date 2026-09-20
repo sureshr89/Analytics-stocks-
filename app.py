@@ -253,101 +253,6 @@ def section_data(name):
     gross=float(x.pnl.sum())
     return x,charges,gross,gross-charges
 
-def stocks_success_failure_view(x):
-    if x.empty:
-        return
-
-    z=x.copy()
-    buy_dt=pd.to_datetime(z.buy_date,errors="coerce")
-    sell_dt=pd.to_datetime(z.sell_date,errors="coerce")
-
-    # Trade direction is determined from the recorded transaction timestamps.
-    # Buy before sell = long trade; sell before buy = short trade.
-    z["Direction"]=np.where(
-        buy_dt.notna() & sell_dt.notna() & (sell_dt < buy_dt),
-        "SELL → BUY",
-        "BUY → SELL"
-    )
-
-    stats=z.groupby(["symbol","Direction"],as_index=False).agg(
-        Trades=("pnl","size"),
-        Success=("pnl",lambda s:(s>0).sum()),
-        Failure=("pnl",lambda s:(s<0).sum()),
-        BreakEven=("pnl",lambda s:(s==0).sum()),
-        PnL=("pnl","sum")
-    )
-    stats["Success %"]=stats.Success/stats.Trades*100
-    stats["Failure %"]=stats.Failure/stats.Trades*100
-    stats["Break-even %"]=stats.BreakEven/stats.Trades*100
-    stats["Display"]=stats["Direction"]+" | "+stats["symbol"]
-
-    st.subheader("🎯 Which stocks did I BUY → SELL vs SELL → BUY?")
-    st.caption(
-        "BUY → SELL = bought first and sold later. SELL → BUY = sold first and bought later. "
-        "The percentages show profitable, losing and break-even trades within each stock/direction."
-    )
-
-    for direction,title in [
-        ("BUY → SELL","🟢 BUY → SELL — Bought first, sold later"),
-        ("SELL → BUY","🔴 SELL → BUY — Sold first, bought later")
-    ]:
-        s=stats[stats.Direction==direction].copy()
-        st.markdown(f"**{title}**")
-        if s.empty:
-            st.info("No trades in this direction in the loaded Stocks data.")
-            continue
-
-        s=s.sort_values(["Success %","Trades"],ascending=[True,False])
-
-        fig=go.Figure()
-        for col,name in [
-            ("Success %","Success"),
-            ("Failure %","Failure"),
-            ("Break-even %","Break-even")
-        ]:
-            fig.add_trace(go.Bar(
-                y=s["symbol"],
-                x=s[col],
-                name=name,
-                orientation="h",
-                text=s[col].map(lambda v:f"{v:.2f}%" if v>0 else ""),
-                textposition="inside",
-                hovertemplate=(
-                    "%{y}<br>"+direction+"<br>"+name+": %{x:.2f}%<br>"
-                    "Trades: %{customdata}<extra></extra>"
-                ),
-                customdata=s["Trades"]
-            ))
-
-        fig.update_layout(
-            barmode="stack",
-            title=f"Stocks — {direction}",
-            xaxis=dict(title="Percentage of trades",range=[0,100],ticksuffix="%"),
-            yaxis=dict(title="Stock",categoryorder="array",categoryarray=s["symbol"].tolist()),
-            legend=dict(orientation="h",y=1.08,x=0),
-            height=max(300,min(760,220+len(s)*32))
-        )
-        chart(fig,max(300,min(760,220+len(s)*32)))
-
-        best=s.loc[s["Success %"].idxmax()]
-        worst=s.loc[s["Failure %"].idxmax()]
-        if best["Success %"]>0:
-            st.success(
-                f"Best {direction}: {best.symbol} — {best['Success %']:.2f}% success "
-                f"from {int(best.Trades)} trades."
-            )
-        if worst["Failure %"]>0:
-            st.error(
-                f"Highest failure {direction}: {worst.symbol} — {worst['Failure %']:.2f}% failure "
-                f"from {int(worst.Trades)} trades."
-            )
-
-    st.info(
-        "💡 Break-even = gross P&L exactly ₹0.00. "
-        "It means the trade itself made neither profit nor loss; brokerage and other charges can still make the final net result negative."
-    )
-    st.markdown("---")
-
 def stocks_timing_view(x):
     st.subheader("⏰ Entry, exit & weekday analysis")
     buy_dt=pd.to_datetime(x.buy_date,errors="coerce")
@@ -530,7 +435,6 @@ def section_view(title,emoji,asset_name):
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
     if asset_name=="Stocks":
-        stocks_success_failure_view(x)
         stocks_timing_view(x)
     st.caption("Note: broker charges are available at section/report level in the current EOD format, so they are not falsely allocated to individual symbols.")
 
