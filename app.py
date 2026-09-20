@@ -85,9 +85,12 @@ def conn():
     scols={r[1] for r in c.execute("pragma table_info(sources)").fetchall()}
     if "report_gross_pnl" not in scols: c.execute("alter table sources add column report_gross_pnl REAL")
     if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")
-    # Repair source periods from actual trade dates. Broker report headers can
-    # contain financial-year/date-range text unrelated to the report's trade
-    # period (for example a Last Trading Day report).
+    c.execute("""CREATE TABLE IF NOT EXISTS charges(
+      source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
+      charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
+    # Repair source and charge periods from actual trade dates. Broker report
+    # headers can contain financial-year/date-range text unrelated to the
+    # report's trade period (for example a Last Trading Day report).
     srcs=c.execute("select source_hash from sources").fetchall()
     for (src_hash,) in srcs:
         bounds=c.execute(
@@ -99,15 +102,10 @@ def conn():
                 "update sources set period_start=?, period_end=? where source_hash=?",
                 (bounds[0],bounds[1],src_hash)
             )
-            # Keep already-imported charge rows aligned with the repaired
-            # source period as well.
             c.execute(
                 "update charges set period_start=?, period_end=? where source_hash=?",
                 (bounds[0],bounds[1],src_hash)
             )
-    c.execute("""CREATE TABLE IF NOT EXISTS charges(
-      source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
-      charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
     c.commit(); return c
 
 def parse_date(v):
@@ -416,13 +414,23 @@ def last_traded_day_view(x):
         (ch.charge_name.str.lower()=="total")
     ].copy()
 
+    stock_ch["period_start_dt"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize()
+    stock_ch["period_end_dt"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize()
     exact_day_ch=stock_ch[
-        pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize().eq(last_day.normalize()) &
-        pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize().eq(last_day.normalize())
+        stock_ch["period_start_dt"].eq(last_day.normalize()) &
+        stock_ch["period_end_dt"].eq(last_day.normalize())
     ].copy()
 
+    # A corrected/re-uploaded report can leave more than one exact-day row in
+    # the database. Use one broker Total for the day rather than summing
+    # duplicate sources.
+    if not exact_day_ch.empty:
+        exact_day_ch=exact_day_ch.sort_values("source_hash").drop_duplicates(
+            subset=["period_start_dt","period_end_dt"],keep="last"
+        )
+
     has_exact_day_charge=not exact_day_ch.empty
-    day_charges=float(exact_day_ch["amount"].sum()) if has_exact_day_charge else 0.0
+    day_charges=float(exact_day_ch["amount"].iloc[0]) if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
@@ -493,28 +501,6 @@ def last_traded_day_view(x):
             f"({int(worst.Wins)} wins / {int(worst.Losses)} losses across {int(worst.Trades)} trades)."
         )
 
-    st.subheader("🧭 What went correct vs wrong")
-    correct=day[day.pnl>0].sort_values("pnl",ascending=False)
-    wrong=day[day.pnl<0].sort_values("pnl")
-
-    if not correct.empty:
-        st.success(
-            "✅ Correct: "
-            + " • ".join(f"{r.symbol} +{money(r.pnl)}" for _,r in correct.head(8).iterrows())
-            + f" • Total winning P&L: {money(wins)}"
-        )
-    else:
-        st.info("No profitable trades on the last traded day.")
-
-    if not wrong.empty:
-        st.error(
-            "❌ Wrong: "
-            + " • ".join(f"{r.symbol} {money(r.pnl)}" for _,r in wrong.head(8).iterrows())
-            + f" • Total losing P&L: {money(losses)}"
-        )
-    else:
-        st.info("No losing trades on the last traded day.")
-
     if net is not None:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
@@ -524,7 +510,7 @@ def last_traded_day_view(x):
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
             f"{breakeven_trades} break-even • gross {money(gross)}. "
-            "No exact one-day broker charge report is available, so day net P&L is not allocated."
+            "Day-specific charges are not available, so day net P&L is not allocated."
         )
 
 def section_view(title,emoji,asset_name):
