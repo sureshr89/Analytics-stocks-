@@ -569,14 +569,25 @@ def last_traded_day_view(x, asset_name="Stocks"):
             "Derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
 
-    a,b,c,d,e=st.columns(5)
-    # Trade-row P&L is gross/before charges unless an exact one-day broker
-    # charge record is available. Keep the labels explicit.
+    # The trade rows give us the actual realised P&L for the last
+    # trading day. Do not display a misleading "Not available" net value
+    # when the broker only supplies charges for the wider report period.
+    a,b,c,d=st.columns(4)
     a.metric("Day realised P&L",money(gross))
-    b.metric("Day net P&L",money(net) if net is not None else "Not available")
-    c.metric("Day charges",money(day_charges) if has_exact_day_charge else "Not available")
-    d.metric("Trades",f"{len(day):,}")
-    e.metric("Win rate",pct(win_rate))
+    b.metric("Trades",f"{len(day):,}")
+    c.metric("Win rate",pct(win_rate))
+    d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
+
+    if has_exact_day_charge:
+        st.caption(
+            f"Day charges: {money(day_charges)} • Day net P&L: {money(net)} "
+            "after exact one-day broker charges."
+        )
+    else:
+        st.caption(
+            "Day net P&L is not shown because the broker report provides "
+            "charges for the wider report period, not this individual trading day."
+        )
 
     if has_exact_day_charge:
         if net>0:
