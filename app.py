@@ -304,7 +304,7 @@ def chart_layout(fig, height=300):
     return fig
 
 st.title("📊 Trading Journal")
-st.caption("Current-year trading analysis • Realised P&L • Charges • Net P&L • cumulative profit/loss")
+st.caption("Current-year trading analysis • Realised P&L • Charges • Net P&L • cumulative profit/loss • Last Trading Day charges included")
 
 with st.sidebar:
     st.header("📤 Upload EOD")
