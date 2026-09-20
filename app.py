@@ -571,8 +571,12 @@ def section_view(title,emoji,asset_name):
     st.header(f"{emoji} {title}")
     st.caption(f"{current_year} only • Realised P&L uses broker-reported EOD realised P&L when available • Net realised P&L = Realised P&L − reported charges")
 
+    # Last Traded Day is an asset-level view and must remain visible even
+    # when sidebar filters leave the current filtered dataframe empty.
+    last_traded_day_view(df[df.asset_class.eq(asset_name)].copy(), asset_name)
+
     if x.empty:
-        st.info(f"No {title} trades loaded for {current_year}.")
+        st.info(f"No {title} trades loaded for {current_year} under the current filters.")
         return
 
     wins=x.loc[x.pnl>0,"pnl"].sum()
@@ -593,10 +597,6 @@ def section_view(title,emoji,asset_name):
         st.error(f"🔴 {title}: {current_year} is NET LOSS after reported charges by {money(net)}.")
     else:
         st.info(f"🔵 {title}: {current_year} is approximately break-even after reported charges.")
-
-    # Show the latest completed trading day immediately after the section
-    # summary, so the day-level reconciliation is not buried below charts.
-    last_traded_day_view(x, asset_name)
 
     sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("pnl",lambda s:(s<0).sum()))
     sym["WinRate"]=sym.Wins/sym.Trades*100
