@@ -304,7 +304,7 @@ def chart_layout(fig, height=300):
     return fig
 
 st.title("📊 Trading Journal")
-st.caption("Current-year trading analysis • Realised P&L • Charges • Net P&L • cumulative profit/loss • Last Trading Day charges included")
+st.caption("Current-year trading analysis • Realised P&L • Charges • Net P&L • cumulative profit/loss")
 
 with st.sidebar:
     st.header("📤 Upload EOD")
@@ -483,211 +483,39 @@ def stocks_timing_view(x):
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
-def last_traded_day_view(x, asset_name="Stocks"):
-    # Last trading day must be derived from the actual completed trade rows,
-    # not from the report filename/end date. Weekends/holidays can make the
-    # broker report end date differ from the latest trading session.
-    latest_uploaded=x.sell_date.dropna().max()
-    if pd.isna(latest_uploaded):
-        return
-
-    last_day=latest_uploaded.normalize()
-
-    # Show the broker/report coverage separately so users can immediately see
-    # why e.g. a report ending 19 Sep can correctly have 18 Sep as its last
-    # trading day.
-    src_meta=pd.read_sql_query(
-        "select period_start,period_end,report_period_start,report_period_end "
-        "from sources where asset_class=?",
-        conn(), params=(asset_name,)
-    )
-    report_ends=[]
-    if not src_meta.empty:
-        for col in ["report_period_end","period_end"]:
-            vals=pd.to_datetime(src_meta[col],errors="coerce").dropna()
-            if not vals.empty:
-                report_ends.append(vals.max().normalize())
-    report_end=max(report_ends) if report_ends else None
-    day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
-    if day.empty:
-        return
-
-    # Never invent a trading day or trade-level statistics from a screenshot
-    # or a manually entered broker figure. Last Traded Day is always derived
-    # from actual uploaded trade rows.
-    stock_ch=ch[
-        (ch.asset_class==asset_name) &
-        (ch.charge_name.str.lower()=="total")
-    ].copy()
-
-    stock_ch["period_start_dt"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize()
-    stock_ch["period_end_dt"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize()
-
-    # A broker report can cover a wider calendar window than the actual
-    # trading rows. If that report contains trades only on the Last Trading
-    # Day, its printed Total Charges belong to that day's activity and can be
-    # used for the day's Net P&L. This handles reports such as 17–19 Sep
-    # where the only completed trades are on 17 Sep.
-    source_meta=pd.read_sql_query(
-        "select source_hash,period_start,period_end,report_period_start,report_period_end,"
-        "report_charges,uploaded_at from sources where asset_class=?",
-        conn(), params=(asset_name,)
-    )
-    for col in ["period_start","period_end","report_period_start","report_period_end"]:
-        source_meta[col]=pd.to_datetime(
-            source_meta[col],errors="coerce"
-        ).dt.normalize()
-
-    # Read the actual stored broker charge rows. The explicit Total row is
-    # preferred; if it was not parsed into the database, sum the individual
-    # charge components instead. This makes the Last Trading Day view robust
-    # to broker Excel layout variations.
-    charge_rows=ch[ch.asset_class.eq(asset_name)].copy()
-    charge_rows["amount_num"]=pd.to_numeric(charge_rows["amount"],errors="coerce")
-    charge_rows["charge_name_lc"]=charge_rows["charge_name"].astype(str).str.strip().str.lower()
-    charge_totals={}
-    for sh,grp in charge_rows.groupby("source_hash",dropna=False):
-        total_rows=grp[grp["charge_name_lc"].eq("total")]
-        if not total_rows.empty:
-            charge_totals[str(sh)]=float(total_rows["amount_num"].sum())
-        else:
-            component_rows=grp[~grp["charge_name_lc"].eq("total")]
-            charge_totals[str(sh)]=float(component_rows["amount_num"].sum())
-
-    eligible_sources=[]
-    for _,src in source_meta.iterrows():
-        sh=str(src["source_hash"])
-        report_charge=pd.to_numeric(src["report_charges"],errors="coerce")
-        if sh in charge_totals:
-            report_charge=charge_totals[sh]
-
-        rps=src["report_period_start"] if not pd.isna(src["report_period_start"]) else src["period_start"]
-        rpe=src["report_period_end"] if not pd.isna(src["report_period_end"]) else src["period_end"]
-
-        if pd.isna(rps) or pd.isna(rpe) or pd.isna(report_charge):
-            continue
-        if not (rps <= last_day.normalize() <= rpe):
-            continue
-
-        src_trades=x[x["source_hash"].astype(str).eq(sh)].copy()
-        src_trades["sell_day"]=pd.to_datetime(
-            src_trades["sell_date"],errors="coerce"
-        ).dt.normalize()
-        src_trades=src_trades[src_trades["sell_day"].notna()]
-
-        # Never allocate a multi-day charge total. We use a source's charges
-        # for the Last Trading Day only when every completed trade represented
-        # by that source is on that same day.
-        if not src_trades.empty and src_trades["sell_day"].eq(last_day.normalize()).all():
-            uploaded_at=str(src["uploaded_at"]) if not pd.isna(src["uploaded_at"]) else ""
-            eligible_sources.append((uploaded_at,sh,float(report_charge)))
-
-    eligible_sources.sort(key=lambda item: item[0])
-    has_exact_day_charge=bool(eligible_sources)
-    day_charges=eligible_sources[-1][2] if has_exact_day_charge else 0.0
-
-    gross=float(day.pnl.sum())
-    net=gross-day_charges if has_exact_day_charge else None
-    wins=float(day.loc[day.pnl>0,"pnl"].sum())
-    losses=float(day.loc[day.pnl<0,"pnl"].sum())
-    winning_trades=int((day.pnl>0).sum())
-    losing_trades=int((day.pnl<0).sum())
-    breakeven_trades=int((day.pnl==0).sum())
-    win_rate=float((day.pnl>0).mean()*100)
-    profit_factor=(wins/abs(losses)) if losses else np.inf
-
-    asset_label = {"F&O":"Equity F&O"}.get(asset_name, asset_name)
-    st.markdown(f"### 🗓️ {asset_label} — Last Trading Day: **{last_day.strftime('%d %b %Y')}**")
-    if report_end is not None and report_end != last_day:
-        st.caption(
-            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
-            "Last Trading Day is derived from the latest actual completed Sell Date in the uploaded trade rows."
-        )
-    else:
-        st.caption(
-            "Derived from the latest actual completed Sell Date in the uploaded trade rows."
-        )
-
-    # Show the complete Last Trading Day reconciliation directly in the
-    # metric cards: realised P&L, broker charges, net P&L, trades and win rate.
-    # Charges are included only when the broker file can be tied to this
-    # trading day using the source-level rule above.
-    a,b,c,d,e=st.columns(5)
-    a.metric("Day realised P&L",money(gross))
-    b.metric("Day charges",money(day_charges) if has_exact_day_charge else "Not available")
-    c.metric("Day net P&L",money(net) if has_exact_day_charge else "Not available")
-    d.metric("Trades",f"{len(day):,}")
-    e.metric("Win rate",pct(win_rate))
-
-    if has_exact_day_charge:
-        st.caption(
-            f"Day net P&L = realised {money(gross)} − charges {money(day_charges)} = {money(net)}."
-        )
-    else:
-        st.caption(
-            "Day-specific charges are not available from the uploaded broker report."
-        )
-
-    if has_exact_day_charge:
-        if net>0:
-            st.success(f"🟢 {asset_name}: NET PROFIT of {money(net)} after exact day charges.")
-        elif net<0:
-            st.error(f"🔴 {asset_name}: NET LOSS of {money(net)} after exact day charges.")
-        else:
-            st.info("🔵 Last Trading Day was approximately break-even after exact day charges.")
-    else:
-        st.warning(
-            "⚠️ Day-specific charges are not available for this uploaded trading day, "
-            "so Day net P&L is left unavailable rather than using an incorrect allocation."
-        )
-
-    a,b,c,d=st.columns(4)
-    a.metric("Winning trades",f"{winning_trades}")
-    b.metric("Losing trades",f"{losing_trades}")
-    c.metric("Break-even",f"{breakeven_trades}")
-    d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
-
-    st.subheader(f"📊 {asset_label} — Last Trading Day P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
-    sym=day.groupby("symbol",as_index=False).agg(
-        PnL=("pnl","sum"),Trades=("pnl","size"),
-        Wins=("pnl",lambda s:int((s>0).sum())),
-        Losses=("pnl",lambda s:int((s<0).sum()))
-    )
-    sym["WinRate"]=sym.Wins/sym.Trades*100
+def weekday_pnl_view(x, title):
+    st.subheader("📅 Entry weekday analysis")
+    buy_dt=pd.to_datetime(x.buy_date,errors="coerce")
+    t=x.assign(BuyDay=buy_dt.dt.day_name())
+    weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
+    day=t.groupby("BuyDay",dropna=True).agg(
+        PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")
+    ).reset_index()
+    day["WinRate"]=day.WinRate*100
+    day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
+    day=day.sort_values("Order")
 
     fig=px.bar(
-        sym.sort_values("PnL"),
-        x="PnL",y="symbol",orientation="h",color="PnL",
+        day,x="BuyDay",y="PnL",color="PnL",
         color_continuous_scale="RdYlGn",
-        title=f"{asset_label} — Last Trading Day realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
+        title=f"{title} — P&L by entry weekday"
     )
-    fig.update_xaxes(tickformat=",.2f")
-    chart(fig,max(320,min(700,260+len(sym)*32)))
+    fig.update_yaxes(tickformat=",.2f")
+    chart(fig,310)
 
-    best=sym.loc[sym.PnL.idxmax()]
-    worst=sym.loc[sym.PnL.idxmin()]
-    if best.PnL>0:
-        st.success(
-            f"🔎 What went good: {best.symbol} made {money(best.PnL)} "
-            f"({int(best.Wins)} wins / {int(best.Losses)} losses across {int(best.Trades)} trades)."
-        )
-    if worst.PnL<0:
-        st.error(
-            f"🔎 What went bad: {worst.symbol} lost {money(worst.PnL)} "
-            f"({int(worst.Wins)} wins / {int(worst.Losses)} losses across {int(worst.Trades)} trades)."
-        )
-
-    if net is not None:
-        st.caption(
-            f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-            f"{breakeven_trades} break-even • realised {money(gross)} − charges {money(day_charges)} = net {money(net)}."
-        )
-    else:
-        st.caption(
-            f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-            f"{breakeven_trades} break-even • realised {money(gross)}. "
-            "Day-specific charges are not available."
-        )
+    if not day.empty:
+        good=day.loc[day.PnL.idxmax()]
+        bad=day.loc[day.PnL.idxmin()]
+        if good.PnL>0:
+            st.success(
+                f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} "
+                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate)."
+            )
+        if bad.PnL<0:
+            st.error(
+                f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} "
+                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate)."
+            )
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
@@ -716,10 +544,6 @@ def section_view(title,emoji,asset_name):
         st.error(f"🔴 {title}: {current_year} is NET LOSS after reported charges by {money(net)}.")
     else:
         st.info(f"🔵 {title}: {current_year} is approximately break-even after reported charges.")
-
-    # Show the latest completed trading day immediately after the section
-    # summary, so the day-level reconciliation is not buried below charts.
-    last_traded_day_view(x, asset_name)
 
     sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("pnl",lambda s:(s<0).sum()))
     sym["WinRate"]=sym.Wins/sym.Trades*100
@@ -817,6 +641,8 @@ def section_view(title,emoji,asset_name):
 
     if asset_name=="Stocks":
         stocks_timing_view(x)
+    else:
+        weekday_pnl_view(x, title)
     st.caption(
         f"Note: {asset_name} broker charges are reconciled at report level. "
         "A report-level charge total is not distributed across individual symbols "
