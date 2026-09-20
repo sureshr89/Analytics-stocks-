@@ -392,9 +392,11 @@ def chart(fig,height=300):
     )
 
 def section_data(name):
-    # Summary cards use the complete current-year asset section. Sidebar
-    # filters are applied to the detailed charts below, because broker-level
-    # charges cannot be safely allocated to an individual symbol/instrument.
+    # Keep complete broker-report totals separate from filtered detail data.
+    # Broker-level charges cannot be safely allocated to a selected symbol or
+    # instrument, so summary cards always remain full-section totals while
+    # charts/weekday analysis can follow the sidebar filters.
+    base=df[df.asset_class.eq(name)].copy()
     x=f[f.asset_class.eq(name)].copy()
     charges=float(ch_year[ch_year.asset_class.eq(name)].amount.sum()) if not ch_year.empty else 0.0
 
@@ -429,7 +431,7 @@ def section_data(name):
 
     if gross is None:
         gross=float(x.pnl.sum())
-    return x,charges,gross,gross-charges
+    return x,charges,gross,gross-charges,base
 
 def stocks_timing_view(x):
     st.subheader("⏰ Entry, exit & weekday analysis")
@@ -562,7 +564,7 @@ def weekday_pnl_view(x, title):
             )
 
 def section_view(title,emoji,asset_name):
-    x,charges,gross,net=section_data(asset_name)
+    x,charges,gross,net,base=section_data(asset_name)
     st.header(f"{emoji} {title}")
     st.caption(
         f"{current_year} only • Summary cards use complete broker-report totals. "
@@ -574,9 +576,9 @@ def section_view(title,emoji,asset_name):
         st.info(f"No {title} trades loaded for {current_year}.")
         return
 
-    wins=x.loc[x.pnl>0,"pnl"].sum()
-    losses=abs(x.loc[x.pnl<0,"pnl"].sum())
-    win_rate=(x.pnl>0).mean()*100
+    wins=base.loc[base.pnl>0,"pnl"].sum()
+    losses=abs(base.loc[base.pnl<0,"pnl"].sum())
+    win_rate=(base.pnl>0).mean()*100
     pf=wins/losses if losses else np.inf
 
     a,b,c,d,e=st.columns(5)
@@ -702,7 +704,7 @@ def overall_summary_view():
     total_gross=0.0
     total_charges=0.0
     for section_name in ["Stocks","F&O","Commodities"]:
-        _,section_charges,section_gross,_=section_data(section_name)
+        _,section_charges,section_gross,_,_=section_data(section_name)
         total_gross += section_gross
         total_charges += section_charges
     total_net=total_gross-total_charges
