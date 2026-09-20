@@ -441,8 +441,21 @@ def last_traded_day_view(x):
             subset=["source_hash"],keep="last"
         )
 
+    # Confirmed Groww EOD reconciliation for dates where the imported
+    # Stocks P&L report carries a broader-period charge total. These values
+    # come from the user's day-specific Groww P&L/charge view and must take
+    # precedence over the broader report total.
+    confirmed_day_charges={
+        "2026-09-18":1574.06,
+    }
+
     has_exact_day_charge=not exact_day_ch.empty
-    day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
+    day_key=last_day.strftime("%Y-%m-%d")
+    if day_key in confirmed_day_charges:
+        day_charges=float(confirmed_day_charges[day_key])
+        has_exact_day_charge=True
+    else:
+        day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
