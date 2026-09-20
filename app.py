@@ -36,6 +36,16 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   .stPlotlyChart, .js-plotly-plot { width:100% !important; max-width:100% !important; max-height:none !important; }
   .plot-container, .svg-container { width:100% !important; }
   .js-plotly-plot .plotly { width:100% !important; }
+  /* Prevent browser/Plotly touch gestures from turning a chart into a zoom surface */
+  .stPlotlyChart,
+  .stPlotlyChart *,
+  .js-plotly-plot,
+  .js-plotly-plot *,
+  .plotly,
+  .plot-container,
+  .svg-container {
+    touch-action: pan-y !important;
+  }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -246,8 +256,18 @@ def chart_layout(fig,height=300):
     return fig
 
 def chart(fig,height=300):
-    st.plotly_chart(chart_layout(fig,height),use_container_width=True,
-                    config={"displayModeBar":False,"responsive":True,"scrollZoom":False})
+    fig.update_layout(dragmode="pan")
+    st.plotly_chart(
+        chart_layout(fig,height),
+        use_container_width=True,
+        config={
+            "displayModeBar":False,
+            "responsive":True,
+            "scrollZoom":False,
+            "doubleClick":False,
+            "displaylogo":False
+        }
+    )
 
 def section_data(name):
     x=f[f.asset_class.eq(name)].copy()
