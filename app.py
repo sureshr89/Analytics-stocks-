@@ -242,6 +242,11 @@ for c,label,val in zip(cols,["Gross P&L","Charges","Net P&L","Trades","Win rate"
 tabs=st.tabs(["🏠 Overview","📅 Daily / Monthly","🏆 Success Analysis","⚠️ Review"])
 
 with tabs[0]:
+    if not src.empty and src["report_gross_pnl"].notna().any():
+        rr=src.groupby("asset_class",as_index=False).agg(Gross=("report_gross_pnl","sum"),Charges=("report_charges","sum"))
+        rr["Net"]=rr.Gross-rr.Charges
+        fig=px.bar(rr,x="asset_class",y=["Gross","Charges","Net"],barmode="group",title="Broker-reconciled result by asset")
+        st.plotly_chart(chart_layout(fig,280),use_container_width=True,config={"displayModeBar":False})
     daily=f.groupby("sell_date",as_index=False).pnl.sum().sort_values("sell_date")
     daily["cumulative"]=daily.pnl.cumsum(); daily["peak"]=daily.cumulative.cummax(); daily["drawdown"]=daily.cumulative-daily.peak
     x,y=st.columns(2)
@@ -337,7 +342,8 @@ with tabs[2]:
     mm["Win_Rate"]=mm.Wins/mm.Trades
     mm["Profitable"]=mm.PnL>0
     st.subheader("📆 Monthly consistency")
-    st.dataframe(mm.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
+    fig=px.bar(mm,x="month",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Monthly consistency")
+    st.plotly_chart(chart_layout(fig,270),use_container_width=True,config={"displayModeBar":False})
 
     # Instrument / option analysis
     st.subheader("🔎 Instrument P&L")
