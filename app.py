@@ -561,14 +561,12 @@ def last_traded_day_view(x, asset_name="Stocks"):
     st.markdown(f"### 🗓️ {asset_label} — Last Trading Day: **{last_day.strftime('%d %b %Y')}**")
     if report_end is not None and report_end != last_day:
         st.caption(
-            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
-            f"Broker report end: {report_end.strftime('%d %b %Y')} • "
-            "calculated from the latest actual completed Sell Date in the uploaded trade rows."
+            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
+            "Last Trading Day is derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
     else:
         st.caption(
-            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
-            f"latest completed trading day in uploaded {asset_name} data"
+            "Derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
 
     a,b,c,d,e=st.columns(5)
