@@ -257,81 +257,100 @@ def stocks_success_failure_view(x):
     if x.empty:
         return
 
-    stats=x.groupby("symbol",as_index=False).agg(
+    z=x.copy()
+    buy_dt=pd.to_datetime(z.buy_date,errors="coerce")
+    sell_dt=pd.to_datetime(z.sell_date,errors="coerce")
+
+    # Use the actual order of the recorded buy/sell dates.
+    # Same-day trades are treated as BUY → SELL because the matched EOD report
+    # does not expose an independent opening-side field.
+    z["Direction"]=np.where(
+        buy_dt.notna() & sell_dt.notna() & (sell_dt < buy_dt),
+        "SELL → BUY",
+        "BUY → SELL"
+    )
+    z["Outcome"]=np.where(z.pnl>0,"Success",np.where(z.pnl<0,"Failure","Break-even"))
+
+    stats=z.groupby(["symbol","Direction"],as_index=False).agg(
         Trades=("pnl","size"),
         Success=("pnl",lambda s:(s>0).sum()),
         Failure=("pnl",lambda s:(s<0).sum()),
-        BreakEven=("pnl",lambda s:(s==0).sum()),
-        PnL=("pnl","sum")
+        BreakEven=("pnl",lambda s:(s==0).sum())
     )
     stats["Success %"]=stats.Success/stats.Trades*100
     stats["Failure %"]=stats.Failure/stats.Trades*100
     stats["Break-even %"]=stats.BreakEven/stats.Trades*100
+    stats["Label"]=stats["symbol"]+" — "+stats["Direction"]
 
-    stats=stats.sort_values(["Success %","PnL"],ascending=[True,False]).copy()
+    stats=stats.sort_values(["Success %","Trades"],ascending=[True,False])
 
     st.subheader("🎯 Stock success vs failure rate")
     st.caption(
-        "Each bar represents 100% of completed trades for that stock. "
-        "Success = profitable trade, Failure = losing trade, Break-even = zero P&L."
+        "Direction is based on the recorded Buy Date and Sell Date. "
+        "BUY → SELL means the buy was recorded before the sell; SELL → BUY means the sell was recorded first."
     )
 
     fig=go.Figure()
-    fig.add_trace(go.Bar(
-        y=stats["symbol"],
-        x=stats["Success %"],
-        name="Success",
-        orientation="h",
-        text=stats["Success %"].map(lambda v:f"{v:.2f}%" if v>0 else ""),
-        textposition="inside",
-        hovertemplate="%{y}<br>Success: %{x:.2f}%<extra></extra>"
-    ))
-    fig.add_trace(go.Bar(
-        y=stats["symbol"],
-        x=stats["Failure %"],
-        name="Failure",
-        orientation="h",
-        text=stats["Failure %"].map(lambda v:f"{v:.2f}%" if v>0 else ""),
-        textposition="inside",
-        hovertemplate="%{y}<br>Failure: %{x:.2f}%<extra></extra>"
-    ))
-    fig.add_trace(go.Bar(
-        y=stats["symbol"],
-        x=stats["Break-even %"],
-        name="Break-even",
-        orientation="h",
-        text=stats["Break-even %"].map(lambda v:f"{v:.2f}%" if v>0 else ""),
-        textposition="inside",
-        hovertemplate="%{y}<br>Break-even: %{x:.2f}%<extra></extra>"
-    ))
+    for col,name in [
+        ("Success %","Success"),
+        ("Failure %","Failure"),
+        ("Break-even %","Break-even")
+    ]:
+        fig.add_trace(go.Bar(
+            y=stats["Label"],
+            x=stats[col],
+            name=name,
+            orientation="h",
+            text=stats[col].map(lambda v:f"{v:.2f}%" if v>0 else ""),
+            textposition="inside",
+            hovertemplate="%{y}<br>"+name+": %{x:.2f}%<extra></extra>"
+        ))
     fig.update_layout(
         barmode="stack",
-        title="Stocks — success vs failure %",
+        title="Stocks — trade direction and outcome",
         xaxis=dict(title="Percentage",range=[0,100],ticksuffix="%"),
-        yaxis=dict(title="Stock",categoryorder="array",categoryarray=stats["symbol"].tolist()),
+        yaxis=dict(title="Stock / direction",categoryorder="array",categoryarray=stats["Label"].tolist()),
         legend=dict(orientation="h",y=1.08,x=0),
-        height=max(360,min(900,260+len(stats)*28))
+        height=max(360,min(950,260+len(stats)*30))
     )
-    chart(fig,max(360,min(900,260+len(stats)*28)))
+    chart(fig,max(360,min(950,260+len(stats)*30)))
 
-    # Highlight the actual outcome rates, not an inferred trade direction.
-    best=stats.loc[stats["Success %"].idxmax()]
-    worst=stats.loc[stats["Failure %"].idxmax()]
-    if best["Success %"]>0:
-        st.success(
-            f"🔎 What went good: {best.symbol} has the highest success rate at "
-            f"{best['Success %']:.2f}% across {int(best.Trades)} trades."
-        )
-    if worst["Failure %"]>0:
-        st.error(
-            f"🔎 What went bad: {worst.symbol} has the highest failure rate at "
-            f"{worst['Failure %']:.2f}% across {int(worst.Trades)} trades."
-        )
+    direction_summary=z.groupby("Direction",as_index=False).agg(
+        Trades=("pnl","size"),
+        Success=("pnl",lambda s:(s>0).sum()),
+        Failure=("pnl",lambda s:(s<0).sum()),
+        BreakEven=("pnl",lambda s:(s==0).sum())
+    )
+    direction_summary["Success %"]=direction_summary.Success/direction_summary.Trades*100
+    direction_summary["Failure %"]=direction_summary.Failure/direction_summary.Trades*100
+
+    a,b=st.columns(2)
+    for i,side in enumerate(["BUY → SELL","SELL → BUY"]):
+        row=direction_summary[direction_summary.Direction==side]
+        with (a if i==0 else b):
+            if row.empty:
+                st.metric(side,"No trades")
+            else:
+                rr=row.iloc[0]
+                st.metric(side,f"{int(rr.Trades)} trades",f"{rr['Success %']:.2f}% success")
+
+    if not stats.empty:
+        best=stats.loc[stats["Success %"].idxmax()]
+        worst=stats.loc[stats["Failure %"].idxmax()]
+        if best["Success %"]>0:
+            st.success(
+                f"🔎 What went good: {best.symbol} ({best.Direction}) has the highest success rate at "
+                f"{best['Success %']:.2f}% across {int(best.Trades)} trades."
+            )
+        if worst["Failure %"]>0:
+            st.error(
+                f"🔎 What went bad: {worst.symbol} ({worst.Direction}) has the highest failure rate at "
+                f"{worst['Failure %']:.2f}% across {int(worst.Trades)} trades."
+            )
 
     st.info(
-        "💡 Buy-side vs sell-side success cannot be measured reliably from the current matched EOD trade format, "
-        "because it does not preserve the original order direction. If you upload order-level data containing "
-        "Buy/Sell side, this section can be split accurately by direction."
+        "💡 Break-even means the matched trade had exactly ₹0.00 gross P&L — neither profit nor loss. "
+        "It is different from a small profit or loss after charges."
     )
     st.markdown("---")
 
