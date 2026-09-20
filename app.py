@@ -220,13 +220,9 @@ src["period_end"]=pd.to_datetime(src["period_end"],errors="coerce").astype("date
 # Report-level gross totals can double-count overlapping/corrected EOD files.
 gross=float(f.pnl.sum())
 charge=0.0
-    if not ch.empty:
-        ch["period_end"]=pd.to_datetime(ch["period_end"],errors="coerce").astype("datetime64[ns]")
-        for aa in f.asset_class.dropna().unique():
-            z=ch[ch.asset_class==aa]
-            if len(z):
-                last=z.period_end.max()
-                charge += z[(z.period_end==last)&(z.charge_name.str.lower()=="total")].amount.sum()
+if not ch.empty:
+    ch["period_end"]=pd.to_datetime(ch["period_end"],errors="coerce").astype("datetime64[ns]")
+    charge=float(ch[(ch.asset_class.isin(f.asset_class.dropna().unique())) & (ch.charge_name.str.lower()=="total")].amount.sum())
 wins=f.loc[f.win,"pnl"].sum(); losses=f.loc[f.loss,"pnl"].sum(); n=len(f)
 net=gross-charge
 
