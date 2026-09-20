@@ -476,9 +476,6 @@ def stocks_timing_view(x):
     else:
         st.info("⏰ Entry/exit time analysis is waiting for EOD files that contain actual timestamps. The currently stored trade dates contain dates only, so no artificial time performance is shown.")
 
-    fig=px.bar(day,x="BuyDay",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry weekday")
-    fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
-
     weekday_trades=day[["BuyDay","Trades"]].copy()
     weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
     if not weekday_trades.empty:
@@ -504,14 +501,6 @@ def weekday_pnl_view(x, title):
     day["WinRate"]=day.WinRate*100
     day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
-
-    fig=px.bar(
-        day,x="BuyDay",y="PnL",color="PnL",
-        color_continuous_scale="RdYlGn",
-        title=f"{title} — P&L by entry weekday"
-    )
-    fig.update_yaxes(tickformat=",.2f")
-    chart(fig,310)
 
     weekday_trades=day[["BuyDay","Trades"]].copy()
     weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
