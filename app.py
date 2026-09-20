@@ -201,7 +201,7 @@ if df.empty:
     st.info("📤 Upload your first EOD Excel from the left sidebar.")
     st.stop()
 
-df["sell_date"]=pd.to_datetime(df.sell_date,errors="coerce"); df["buy_date"]=pd.to_datetime(df.buy_date,errors="coerce")
+df["sell_date"]=pd.to_datetime(df.sell_date,errors="coerce").astype("datetime64[ns]"); df["buy_date"]=pd.to_datetime(df.buy_date,errors="coerce").astype("datetime64[ns]")
 df["month"]=df.sell_date.dt.to_period("M").astype(str); df["win"]=df.pnl>0; df["loss"]=df.pnl<0
 
 with st.sidebar:
@@ -215,16 +215,13 @@ if inst!="All": f=f[f.instrument==inst]
 if syms: f=f[f.symbol.isin(syms)]
 
 src=pd.read_sql_query("select * from sources",conn())
-src["period_end"]=pd.to_datetime(src["period_end"],errors="coerce")
-if not src.empty and src["report_gross_pnl"].notna().any() and inst=="All" and not syms:
-    scoped=src[src.asset_class.isin(f.asset_class.dropna().unique())]
-    gross=float(scoped["report_gross_pnl"].fillna(0).sum())
-    charge=float(scoped["report_charges"].fillna(0).sum())
-else:
-    gross=float(f.pnl.sum())
-    charge=0.0
+src["period_end"]=pd.to_datetime(src["period_end"],errors="coerce").astype("datetime64[ns]")
+# Reconstructed trade rows are the source of truth for gross P&L.
+# Report-level gross totals can double-count overlapping/corrected EOD files.
+gross=float(f.pnl.sum())
+charge=0.0
     if not ch.empty:
-        ch["period_end"]=pd.to_datetime(ch.period_end,errors="coerce")
+        ch["period_end"]=pd.to_datetime(ch["period_end"],errors="coerce").astype("datetime64[ns]")
         for aa in f.asset_class.dropna().unique():
             z=ch[ch.asset_class==aa]
             if len(z):
@@ -288,8 +285,9 @@ tabs=st.tabs(["📊 Overview","🗓️ Periods & Spikes","🎯 NIFTY / F&O / Com
 st.markdown("### ⏱️ Decision horizon")
 horizon=st.radio("Use the same horizon across the dashboard",["Latest trading day","Current month","Past 3 months","Current year","All history"],horizontal=True,label_visibility="collapsed")
 hf=period_frame(f,horizon)
-if hf.empty: hf=f.copy()
-st.caption(period_label(horizon,hf))
+if hf.empty:
+    st.info("No trades are available in this period. Select another horizon or upload the missing EOD file.")
+st.caption(period_label(horizon,hf) if not hf.empty else f"{horizon} • no trades loaded")
 
 with tabs[0]:
     st.subheader("📊 Performance Map")
@@ -304,7 +302,7 @@ with tabs[0]:
     avg_h=float(hf.pnl.mean()) if trades_h else 0
     pf=(hf.loc[hf.pnl>0,"pnl"].sum()/abs(hf.loc[hf.pnl<0,"pnl"].sum())) if (hf.pnl<0).any() else np.inf
     c1,c2,c3,c4,c5=st.columns(5)
-    # Trade P&L is gross realised P&L; charges are tracked separately.\n    horizon_charge=0.0\n    if not ch.empty and not hf.empty:\n        ch_tmp=ch.copy(); ch_tmp["period_end"]=pd.to_datetime(ch_tmp.period_end,errors="coerce")\n        horizon_charge=float(ch_tmp[(ch_tmp.asset_class.isin(hf.asset_class.unique())) & (ch_tmp.period_end>=hf.sell_date.min()) & (ch_tmp.period_end<=hf.sell_date.max()) & (ch_tmp.charge_name.str.lower()=="total")].amount.sum())\n    horizon_net=gross_h-horizon_charge\n    c1.metric("Net P&L (estimated)",money(horizon_net))
+    # Trade P&L is gross realised P&L; charges are tracked separately.\n    horizon_charge=0.0\n    if not ch.empty and not hf.empty:\n        ch_tmp=ch.copy(); ch_tmp["period_end"]=pd.to_datetime(ch_tmp["period_end"],errors="coerce").astype("datetime64[ns]")\n        horizon_charge=float(ch_tmp[(ch_tmp.asset_class.isin(hf.asset_class.unique())) & (ch_tmp.period_end>=hf.sell_date.min()) & (ch_tmp.period_end<=hf.sell_date.max()) & (ch_tmp.charge_name.str.lower()=="total")].amount.sum())\n    horizon_net=gross_h-horizon_charge\n    c1.metric("Net P&L (estimated)",money(horizon_net))
     c2.metric("Trades",f"{trades_h:,}")
     c3.metric("Win rate",pct(wins_h/trades_h) if trades_h else "0%")
     c4.metric("Avg trade",money(avg_h))
