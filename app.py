@@ -434,6 +434,64 @@ def section_view(title,emoji,asset_name):
     observation_text=f"Gross P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
+\n    # Perfect / failed stock records
+    perfect=table[(table["WinRate"]==100)].copy()
+    failed=table[(table["WinRate"]==0)].copy()
+
+    st.subheader("🎯 100% Success vs 100% Failure stocks")
+    st.caption(
+        "100% Success = every completed trade for that stock was profitable. "
+        "100% Failure = every completed trade for that stock was a loss."
+    )
+
+    a,b=st.columns(2)
+
+    with a:
+        st.markdown("### 🟢 100% Success")
+        if perfect.empty:
+            st.info("No stock has a 100% success record in the current data.")
+        else:
+            p=perfect.sort_values(["Trades","PnL"],ascending=[False,False]).copy()
+            p["Label"]=p["symbol"]+" ("+p["Trades"].astype(int).astype(str)+" trades)"
+            fig=px.bar(
+                p.sort_values("PnL"),
+                x="PnL",
+                y="Label",
+                orientation="h",
+                text="PnL",
+                title="Stocks with 100% winning trades"
+            )
+            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+            fig.update_xaxes(tickformat=",.2f")
+            chart(fig,max(280,min(560,220+len(p)*28)))
+            st.success(
+                "All trades were profitable for: "
+                + ", ".join(f"{r.symbol} ({int(r.Trades)})" for _,r in p.iterrows())
+            )
+
+    with b:
+        st.markdown("### 🔴 100% Failure")
+        if failed.empty:
+            st.info("No stock has a 100% failure record in the current data.")
+        else:
+            q=failed.sort_values(["Trades","PnL"],ascending=[False,True]).copy()
+            q["Label"]=q["symbol"]+" ("+q["Trades"].astype(int).astype(str)+" trades)"
+            fig=px.bar(
+                q.sort_values("PnL"),
+                x="PnL",
+                y="Label",
+                orientation="h",
+                text="PnL",
+                title="Stocks with 100% losing trades"
+            )
+            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+            fig.update_xaxes(tickformat=",.2f")
+            chart(fig,max(280,min(560,220+len(q)*28)))
+            st.error(
+                "All trades were losing for: "
+                + ", ".join(f"{r.symbol} ({int(r.Trades)})" for _,r in q.iterrows())
+            )
+
     if asset_name=="Stocks":
         stocks_timing_view(x)
     st.caption("Note: broker charges are available at section/report level in the current EOD format, so they are not falsely allocated to individual symbols.")
