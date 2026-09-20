@@ -303,7 +303,13 @@ def stocks_timing_view(x):
         hour["WinRate"]=hour.WinRate*100
         hour["Buy time"]=hour.BuyHour.map(lambda v:f"{int(v):02d}:00")
         hour["Exit time"]=hour.SellHour.map(lambda v:f"{int(v):02d}:00")
-        st.dataframe(hour.sort_values("PnL",ascending=False)[["Buy time","Exit time","Trades","WinRate","PnL"]].rename(columns={"WinRate":"Win rate","PnL":"P&L"}).style.format({"Win rate":"{:.2f}%","P&L":"₹{:,.2f}"}),use_container_width=True,hide_index=True)
+        hour["Time Pair"]=hour["Buy time"]+" → "+hour["Exit time"]
+        fig=px.bar(hour.sort_values("PnL"),x="PnL",y="Time Pair",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry → exit time")
+        fig.update_xaxes(tickformat=",.2f"); chart(fig,340)
+        if not hour.empty:
+            good=hour.loc[hour.PnL.idxmax()]; bad=hour.loc[hour.PnL.idxmin()]
+            if good.PnL>0: st.success(f"🔎 What went good: {good['Buy time']} → {good['Exit time']} produced {money(good.PnL)} across {int(good.Trades)} trades.")
+            if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Buy time']} → {bad['Exit time']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
         hold=t.dropna(subset=["HoldHours"])
         if not hold.empty and hold.HoldHours.notna().any():
             st.caption(f"Average holding time: {hold.HoldHours.mean():.2f} hours • Median: {hold.HoldHours.median():.2f} hours.")
