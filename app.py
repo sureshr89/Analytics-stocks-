@@ -221,26 +221,62 @@ def extract(uploaded,filename):
 
 def save(uploaded,filename):
     sh,asset,ps,pe,rows,charges,report_gross,report_charges,report_ps,report_pe=extract(uploaded,filename); c=conn()
-    existing=c.execute('select source_hash,period_start,period_end from sources where asset_class=?',(asset,)).fetchall()
-    replace_hashes=[]; covered=False
-    # Re-process an identical source after parser/reconciliation fixes.
-    if any(old_hash==sh for old_hash,_,_ in existing):
+    existing=c.execute(
+        'select source_hash,period_start,period_end,report_period_start,report_period_end '
+        'from sources where asset_class=?',(asset,)
+    ).fetchall()
+    replace_hashes=[]
+
+    # A newly uploaded broker report is authoritative for its printed report
+    # period. This is important when the report contains no trades on some
+    # later dates: stale rows from an older upload must not survive outside
+    # the new file's actual trade rows.
+    if any(old_hash==sh for old_hash,*_ in existing):
         replace_hashes.append(sh)
-    if ps and pe:
-        nps=pd.to_datetime(ps); npe=pd.to_datetime(pe)
-        for old_hash,ops,ope in existing:
-            if not ops or not ope: continue
-            ods=pd.to_datetime(ops); ode=pd.to_datetime(ope)
-            if ods==nps and ode==npe: replace_hashes.append(old_hash)
-            elif ods>=nps and ode<=npe: replace_hashes.append(old_hash)
-            elif ods<=nps and ode>=npe: covered=True
-    if covered and not replace_hashes: return 0,'Already covered by existing report',asset
+
+    if report_ps and report_pe:
+        rps=pd.to_datetime(report_ps).normalize()
+        rpe=pd.to_datetime(report_pe).normalize()
+        for old_hash,ops,ope,orps,orpe in existing:
+            if old_hash in replace_hashes:
+                continue
+            if orps and orpe:
+                ors=pd.to_datetime(orps).normalize()
+                ore=pd.to_datetime(orpe).normalize()
+            elif ops and ope:
+                ors=pd.to_datetime(ops).normalize()
+                ore=pd.to_datetime(ope).normalize()
+            else:
+                continue
+            # Replace any older report fully contained in the new report,
+            # or an older report with the same report range. This removes
+            # stale trades that are absent from the newly supplied file.
+            if rps<=ors and ore<=rpe:
+                replace_hashes.append(old_hash)
+            elif ors==rps and ore==rpe:
+                replace_hashes.append(old_hash)
+
+    # Do not use "already covered" here: coverage based on min/max trade
+    # dates can incorrectly preserve stale rows when a broker report's
+    # printed period is wider than its actual trade rows.
     if replace_hashes:
         q=','.join('?'*len(replace_hashes))
         c.execute(f'delete from trades where source_hash in ({q})',replace_hashes)
         c.execute(f'delete from charges where source_hash in ({q})',replace_hashes)
         c.execute(f'delete from sources where source_hash in ({q})',replace_hashes)
-    if ps and pe: c.execute('delete from trades where asset_class=? and sell_date>=? and sell_date<=?',(asset,ps,pe))
+    # Clear all old trades inside the broker report's stated period before
+    # inserting the current file. This prevents an older upload from making
+    # Last Trading Day appear later than the latest trade in the new file.
+    if report_ps and report_pe:
+        c.execute(
+            'delete from trades where asset_class=? and sell_date>=? and sell_date<=?',
+            (asset,report_ps,report_pe)
+        )
+    elif ps and pe:
+        c.execute(
+            'delete from trades where asset_class=? and sell_date>=? and sell_date<=?',
+            (asset,ps,pe)
+        )
     for r in rows: c.execute('insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(r[k] for k in ['trade_hash','source_hash','asset_class','symbol','instrument','option_type','strike','expiry','qty','buy_date','buy_price','buy_value','sell_date','sell_price','sell_value','pnl','remark','uploaded_at']))
     # Charges are report-level figures. Store the broker's printed report
     # period, never the min/max dates of the individual trade rows.
@@ -521,13 +557,12 @@ def last_traded_day_view(x, asset_name="Stocks"):
     win_rate=float((day.pnl>0).mean()*100)
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
-    st.subheader("🗓️ Last trading day")
+    st.subheader("🗓️ Last trading day — actual completed trade date")
     if report_end is not None and report_end != last_day:
         st.caption(
             f"Last trading day: {last_day.strftime('%d %b %Y')} • "
-            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
-            "the last trading day is taken from the latest actual Sell Date, "
-            "not from the report filename/date range."
+            f"Broker report end: {report_end.strftime('%d %b %Y')} • "
+            "calculated from the latest actual completed Sell Date in the uploaded trade rows."
         )
     else:
         st.caption(
