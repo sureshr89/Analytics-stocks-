@@ -247,7 +247,7 @@ def chart_layout(fig,height=300):
 
 def chart(fig,height=300):
     st.plotly_chart(chart_layout(fig,height),use_container_width=True,
-                    config={"displayModeBar":False,"responsive":True})
+                    config={"displayModeBar":False,"responsive":True,"scrollZoom":False})
 
 def section_data(name):
     x=f[f.asset_class.eq(name)].copy()
