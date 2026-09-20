@@ -497,9 +497,9 @@ def last_traded_day_view(x, asset_name="Stocks"):
     st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded {asset_name} trade data")
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Realised P&L",money(gross))
-    b.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
-    c.metric("Net P&L",money(net) if net is not None else "Not available")
+    a.metric("Net realised P&L",money(net) if net is not None else "Not available")
+    b.metric("Realised P&L",money(gross))
+    c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
     d.metric("Trades",f"{len(day):,}")
     e.metric("Win rate",pct(win_rate))
 
