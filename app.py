@@ -99,6 +99,12 @@ def conn():
                 "update sources set period_start=?, period_end=? where source_hash=?",
                 (bounds[0],bounds[1],src_hash)
             )
+            # Keep already-imported charge rows aligned with the repaired
+            # source period as well.
+            c.execute(
+                "update charges set period_start=?, period_end=? where source_hash=?",
+                (bounds[0],bounds[1],src_hash)
+            )
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
