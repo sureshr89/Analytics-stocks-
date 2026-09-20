@@ -563,14 +563,14 @@ def last_traded_day_view(x, asset_name="Stocks"):
     )
     if report_end is not None and report_end != last_day:
         st.caption(
-            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
+            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
             f"Broker report end: {report_end.strftime('%d %b %Y')} • "
-            "calculated from the latest actual completed Sell Date in the uploaded trade rows."
+            "Last Trading Day is derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
     else:
         st.caption(
             f"Last trading day: {last_day.strftime('%d %b %Y')} • "
-            f"latest completed trading day in uploaded {asset_name} data"
+            "Derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
 
     a,b,c,d,e=st.columns(5)
@@ -601,7 +601,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
     c.metric("Break-even",f"{breakeven_trades}")
     d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
 
-    st.subheader(f"📊 Last Trading Day — P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
+    st.subheader(f"📊 {asset_label} — Last Trading Day P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
     sym=day.groupby("symbol",as_index=False).agg(
         PnL=("pnl","sum"),Trades=("pnl","size"),
         Wins=("pnl",lambda s:int((s>0).sum())),
@@ -613,7 +613,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
         sym.sort_values("PnL"),
         x="PnL",y="symbol",orientation="h",color="PnL",
         color_continuous_scale="RdYlGn",
-        title=f"Last Trading Day — realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
+        title=f"{asset_label} — Last Trading Day realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
     )
     fig.update_xaxes(tickformat=",.2f")
     chart(fig,max(320,min(700,260+len(sym)*32)))
