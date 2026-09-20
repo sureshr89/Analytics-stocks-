@@ -518,19 +518,23 @@ def stocks_timing_view(x):
         weekday_chart=day[day.PnL!=0].copy()
         if not weekday_chart.empty:
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
+            weekday_chart["DayLabel"]=weekday_chart["TradeDay"]+"<br>"+weekday_chart["DayType"]
+            day_order=[f"{d}<br>{weekday_chart.loc[weekday_chart.TradeDay.eq(d),'DayType'].iloc[0]}" for d in weekdays if (weekday_chart.TradeDay==d).any()]
             fig=px.bar(
                 weekday_chart,
-                x="TradeDay",
+                x="DayLabel",
                 y="PnL",
                 color="DayType",
-                category_orders={"TradeDay":weekdays},
+                category_orders={"DayLabel":day_order},
                 color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
-                title="Stocks — realised P&L by trading day (winning vs loss)"
+                text="DayType",
+                title="Stocks — realised P&L by day"
             )
+            fig.update_traces(textposition="outside",texttemplate="%{text}")
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
             fig.update_xaxes(title_text="Day")
-            fig.update_layout(legend_title_text="Day type")
-            chart(fig,320)
+            fig.update_layout(showlegend=False)
+            chart(fig,340)
 
 def weekday_pnl_view(x, title):
     st.subheader("📅 Winning day vs loss day")
@@ -548,18 +552,23 @@ def weekday_pnl_view(x, title):
         weekday_chart=day[day.PnL!=0].copy()
         if not weekday_chart.empty:
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
+            weekday_chart["DayLabel"]=weekday_chart["TradeDay"]+"<br>"+weekday_chart["DayType"]
+            day_order=[f"{d}<br>{weekday_chart.loc[weekday_chart.TradeDay.eq(d),'DayType'].iloc[0]}" for d in weekdays if (weekday_chart.TradeDay==d).any()]
             fig=px.bar(
                 weekday_chart,
-                x="TradeDay",
+                x="DayLabel",
                 y="PnL",
                 color="DayType",
-                category_orders={"TradeDay":weekdays},
+                category_orders={"DayLabel":day_order},
                 color_discrete_map={"Winning day":PROFIT,"Loss day":LOSS},
-                title=f"{title} — realised P&L by trading day (winning vs loss)"
+                text="DayType",
+                title=f"{title} — realised P&L by day"
             )
+            fig.update_traces(textposition="outside",texttemplate="%{text}")
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
-            fig.update_layout(legend_title_text="Day type")
-            chart(fig,320)
+            fig.update_xaxes(title_text="Day")
+            fig.update_layout(showlegend=False)
+            chart(fig,340)
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net,base=section_data(asset_name)
