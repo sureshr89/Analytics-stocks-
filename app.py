@@ -478,6 +478,16 @@ def stocks_timing_view(x):
 
     fig=px.bar(day,x="BuyDay",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry weekday")
     fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
+
+    weekday_trades=day[["BuyDay","Trades"]].copy()
+    weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
+    if not weekday_trades.empty:
+        fig=px.pie(
+            weekday_trades,names="BuyDay",values="Trades",hole=0.45,
+            title="Stocks — trade distribution by entry weekday"
+        )
+        chart(fig,300)
+
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
@@ -502,6 +512,15 @@ def weekday_pnl_view(x, title):
     )
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,310)
+
+    weekday_trades=day[["BuyDay","Trades"]].copy()
+    weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
+    if not weekday_trades.empty:
+        fig=px.pie(
+            weekday_trades,names="BuyDay",values="Trades",hole=0.45,
+            title=f"{title} — trade distribution by entry weekday"
+        )
+        chart(fig,300)
 
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]
