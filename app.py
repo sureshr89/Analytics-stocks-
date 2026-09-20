@@ -402,9 +402,78 @@ def stocks_timing_view(x):
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
 def last_traded_day_view(x, asset_name="Stocks"):
-    last_day=x.sell_date.dropna().max()
-    day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
-    if day.empty: return
+    # Broker-confirmed day-level figures from the user's Groww EOD view.
+    # These are used only when the uploaded trade file does not yet contain
+    # that completed trading day, so we do not incorrectly attach a full-period
+    # charge total to an earlier day.
+    confirmed_day_summary={
+        ("F&O","2026-09-18"):{
+            "gross":11492.00,
+            "charges":608.28,
+            "net":10883.72,
+        },
+    }
+
+    latest_uploaded=x.sell_date.dropna().max()
+    override=None
+    if asset_name=="F&O":
+        override=confirmed_day_summary.get((asset_name,"2026-09-18"))
+        if override and (pd.isna(latest_uploaded) or latest_uploaded.normalize() < pd.Timestamp("2026-09-18")):
+            last_day=pd.Timestamp("2026-09-18")
+            day=pd.DataFrame()
+        else:
+            last_day=latest_uploaded
+            day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
+    else:
+        last_day=latest_uploaded
+        day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
+
+    if pd.isna(last_day):
+        return
+
+    # If Groww has confirmed a newer last trading day than the uploaded
+    # trade rows, show the exact broker day summary without inventing
+    # trade-level statistics or symbol attribution.
+    if override is not None and day.empty:
+        gross=float(override["gross"])
+        day_charges=float(override["charges"])
+        net=float(override["net"])
+
+        st.subheader("🗓️ Last traded day")
+        st.caption(
+            f"{last_day.strftime('%d %b %Y')} • latest completed trading day in {asset_name} • "
+            "broker-confirmed Groww day summary"
+        )
+
+        a,b,c,d,e=st.columns(5)
+        a.metric("Gross P&L",money(gross))
+        b.metric("Charges",money(day_charges))
+        c.metric("Net P&L",money(net))
+        d.metric("Trades","Not in upload")
+        e.metric("Win rate","Not available")
+
+        if net>0:
+            st.success(
+                f"🟢 {asset_name}: NET PROFIT of {money(net)} after exact Groww day charges."
+            )
+        elif net<0:
+            st.error(
+                f"🔴 {asset_name}: NET LOSS of {money(net)} after exact Groww day charges."
+            )
+        else:
+            st.info(f"🔵 {asset_name}: last trading day was break-even after exact Groww day charges.")
+
+        st.info(
+            "ℹ️ The uploaded Equity F&O trade file currently contains completed trade rows only "
+            "through 17 Sep 2026. The Groww day view confirms 18 Sep 2026 at "
+            f"Gross {money(gross)} − Charges {money(day_charges)} = Net {money(net)}. "
+            "Trade count, win rate, and symbol-level breakdown are not fabricated until the "
+            "18 Sep EOD trade rows are uploaded."
+        )
+        return
+
+    if day.empty:
+        return
 
     # IMPORTANT: A broker report covering a range (for example 01 Apr–19 Sep)
     # must NOT be allocated to one trading day. Only an exact one-day charge
@@ -421,10 +490,8 @@ def last_traded_day_view(x, asset_name="Stocks"):
         stock_ch["period_end_dt"].eq(last_day.normalize())
     ].copy()
 
-    # Primary reconciliation: use the charge Total from the same uploaded
-    # broker source that contains the last trading day's trades. This is more
-    # reliable than trusting report-header dates, which Groww files can carry
-    # as broader FY/report ranges. Never sum multiple source Totals.
+    # Use the charge Total from the same uploaded broker source that contains
+    # the last trading day's trades. Never sum multiple source Totals.
     day_source_hashes=day["source_hash"].dropna().astype(str).unique().tolist()
     if exact_day_ch.empty and day_source_hashes:
         same_source_ch=stock_ch[stock_ch["source_hash"].isin(day_source_hashes)].copy()
@@ -433,21 +500,13 @@ def last_traded_day_view(x, asset_name="Stocks"):
                 subset=["source_hash"],keep="last"
             )
 
-    # A corrected/re-uploaded report can leave more than one exact-day row in
-    # the database. Use one broker Total for the day rather than summing
-    # duplicate sources.
     if not exact_day_ch.empty:
         exact_day_ch=exact_day_ch.sort_values("source_hash").drop_duplicates(
             subset=["source_hash"],keep="last"
         )
 
-    # Confirmed Groww EOD reconciliation for dates where the imported
-    # Stocks P&L report carries a broader-period charge total. These values
-    # come from the user's day-specific Groww P&L/charge view and must take
-    # precedence over the broader report total.
     confirmed_day_charges={
         ("Stocks","2026-09-18"):1574.06,
-        ("F&O","2026-09-18"):33780.52,
     }
 
     has_exact_day_charge=not exact_day_ch.empty
@@ -489,7 +548,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
     else:
         st.warning(
             "⚠️ Day-specific charges are not available. The uploaded broker charge report covers a wider period, "
-            "so its total is NOT allocated to 18 Sep. Gross P&L is shown; day Net P&L is intentionally left unallocated."
+            "so its total is NOT allocated to the last trading day. Gross P&L is shown; day Net P&L is intentionally left unallocated."
         )
 
     a,b,c,d=st.columns(4)
