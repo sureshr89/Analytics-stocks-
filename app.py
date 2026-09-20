@@ -240,237 +240,347 @@ for c,label,val in zip(cols,["Gross P&L","Charges","Net P&L","Trades","Win rate"
     c.metric(label,val)
 
 
-tabs=st.tabs(["🏠 Decision Dashboard","📅 Daily Signals","🎯 F&O Edge","🧠 Pre-Trade Review"])
 
 def safe_money(v):
     return money(float(v)) if pd.notna(v) else "—"
 
-def insight_card(title, body, kind="info"):
-    msg = "**" + str(title) + "**  \n" + str(body)
-    if kind=="good": st.success(msg)
-    elif kind=="bad": st.error(msg)
-    elif kind=="warn": st.warning(msg)
-    else: st.info(msg)
+def observation(title, text, kind="info"):
+    icon={"good":"🟢","bad":"🔴","warn":"🟠","info":"🔵"}.get(kind,"🔵")
+    st.markdown(f"**{icon} {title}** — {text}")
+
+def chart(fig, height=300):
+    return st.plotly_chart(chart_layout(fig,height), use_container_width=True, config={"displayModeBar":False,"responsive":True})
+
+def period_frame(base, mode):
+    x=base.copy()
+    if x.empty: return x
+    latest=x["sell_date"].max()
+    if pd.isna(latest): return x
+    if mode=="Previous day":
+        d=x[x.sell_date==latest]
+        return d
+    if mode=="Current month":
+        return x[(x.sell_date.dt.year==latest.year)&(x.sell_date.dt.month==latest.month)]
+    if mode=="Past 3 months":
+        return x[x.sell_date>=latest-pd.DateOffset(months=3)]
+    if mode=="Current year":
+        return x[x.sell_date.dt.year==latest.year]
+    return x
+
+def period_label(mode, x):
+    if x.empty: return mode
+    return f"{mode} • {x.sell_date.min().strftime('%d %b %Y')} → {x.sell_date.max().strftime('%d %b %Y')}"
+
+def add_underlying(x):
+    x=x.copy()
+    def u(v):
+        s=str(v).upper()
+        for k in ["BANKNIFTY","FINNIFTY","MIDCPNIFTY","NIFTY","SENSEX","BANKEX"]:
+            if k in s: return k
+        return str(v).split()[0] if str(v).strip() else "Unknown"
+    x["Underlying"]=x.symbol.map(u)
+    return x
+
+tabs=st.tabs(["📊 Overview","🗓️ Periods & Spikes","🎯 NIFTY / F&O / Commodities","🚦 Next-Trade Panel"])
+
+# Global decision horizon
+st.markdown("### ⏱️ Decision horizon")
+horizon=st.radio("Use the same horizon across the dashboard",["Previous day","Current month","Past 3 months","Current year","All history"],horizontal=True,label_visibility="collapsed")
+hf=period_frame(f,horizon)
+if hf.empty: hf=f.copy()
+st.caption(period_label(horizon,hf))
 
 with tabs[0]:
-    st.subheader("🎯 Decision Dashboard")
-    st.caption("Not a trade diary. This page turns your realised history into clear evidence for your next trade: what has worked, what has hurt, and where risk needs extra checking.")
-
+    st.subheader("📊 Performance Map")
     day=f.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
     day["Win_Rate"]=day.Wins/day.Trades
-    day["Type"]=np.where(day.PnL>0,"Profit day","Loss day")
     day["Cumulative"]=day.PnL.cumsum()
     day["Peak"]=day.Cumulative.cummax()
     day["Drawdown"]=day.Cumulative-day.Peak
 
-    sym=f.groupby(["asset_class","symbol"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Avg=("pnl","mean"))
-    sym["Win_Rate"]=sym.Wins/sym.Trades
-    ins=f.groupby(["asset_class","instrument"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
-    ins["Win_Rate"]=ins.Wins/ins.Trades
+    # KPI row stays compact; charts carry the analysis.
+    gross_h=float(hf.pnl.sum()); trades_h=len(hf); wins_h=int(hf.win.sum())
+    avg_h=float(hf.pnl.mean()) if trades_h else 0
+    pf=(hf.loc[hf.pnl>0,"pnl"].sum()/abs(hf.loc[hf.pnl<0,"pnl"].sum())) if (hf.pnl<0).any() else np.inf
+    c1,c2,c3,c4,c5=st.columns(5)
+    c1.metric("Net P&L",money(gross_h))
+    c2.metric("Trades",f"{trades_h:,}")
+    c3.metric("Win rate",pct(wins_h/trades_h) if trades_h else "0%")
+    c4.metric("Avg trade",money(avg_h))
+    c5.metric("Profit factor",f"{pf:.2f}" if np.isfinite(pf) else "∞")
 
-    good_days=int((day.PnL>0).sum()); bad_days=int((day.PnL<0).sum())
-    best_day=day.PnL.max() if len(day) else 0; worst_day=day.PnL.min() if len(day) else 0
-    avg_win=f.loc[f.win,"pnl"].mean() if f.win.any() else 0
-    avg_loss=f.loc[f.loss,"pnl"].mean() if f.loss.any() else 0
-
-    k1,k2,k3,k4,k5=st.columns(5)
-    k1.metric("Net P&L",money(net))
-    k2.metric("Profit days",str(good_days))
-    k3.metric("Loss days",str(bad_days))
-    k4.metric("Best day",money(best_day))
-    k5.metric("Worst day",money(worst_day))
-
-    # One-glance composition and outcome
     a,b=st.columns(2)
     with a:
-        split=pd.DataFrame({"Result":["Profitable","Losing"],"Amount":[max(wins,0),abs(min(losses,0))]})
-        fig=px.pie(split,names="Result",values="Amount",hole=.58,title="Where trade P&L came from")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
+        res=pd.DataFrame({"Result":["Wins","Losses"],"Amount":[hf.loc[hf.pnl>0,"pnl"].sum(),abs(hf.loc[hf.pnl<0,"pnl"].sum())]})
+        fig=px.pie(res,names="Result",values="Amount",hole=.60,title="Win vs loss contribution")
+        chart(fig,290)
+        observation("What went right",f"Winners contributed {money(res.Amount.iloc[0])} versus {money(res.Amount.iloc[1])} of losing P&L in this horizon." if res.Amount.sum() else "No realised P&L in this horizon.","good" if res.Amount.iloc[0]>=res.Amount.iloc[1] else "warn")
     with b:
-        asset_view=f.groupby("asset_class",as_index=False).agg(PnL=("pnl","sum"))
-        fig=px.bar(asset_view,x="asset_class",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Asset-level contribution")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
+        av=hf.groupby("asset_class",as_index=False).agg(PnL=("pnl","sum")).sort_values("PnL")
+        fig=px.bar(av,x="PnL",y="asset_class",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Asset contribution")
+        chart(fig,290)
+        top=av.iloc[-1] if len(av) else None
+        observation("What went right / wrong",f"{top.asset_class} is the largest positive contributor at {money(top.PnL)}." if top is not None and top.PnL>0 else "No positive asset contribution in this horizon.","good" if top is not None and top.PnL>0 else "warn")
 
-    # The most useful visual: recent-to-history equity path
-    fig=px.line(day,x="sell_date",y="Cumulative",markers=True,title="Cumulative P&L — turning points")
+    # Full cumulative curve, plus recent horizon overlay.
+    fig=px.line(day,x="sell_date",y="Cumulative",markers=True,title="Overall cumulative P&L")
     fig.update_traces(line_width=3)
-    st.plotly_chart(chart_layout(fig,315),use_container_width=True,config={"displayModeBar":False})
+    chart(fig,330)
+    if len(day):
+        last=day.iloc[-1]
+        observation("Equity read",f"Latest day closed at {money(last.PnL)}; cumulative P&L is {money(last.Cumulative)}. The distance below the prior peak is {money(last.Drawdown)}.","good" if last.Drawdown==0 else "warn")
 
     a,b=st.columns(2)
     with a:
-        fig=px.bar(day,x="sell_date",y="PnL",color="Type",title="Daily outcome — green profit / red loss")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
+        recent=day.tail(min(20,len(day))).copy()
+        recent["Type"]=np.where(recent.PnL>=0,"Profit","Loss")
+        fig=px.bar(recent,x="sell_date",y="PnL",color="Type",title="Last 20 trading days")
+        chart(fig,300)
+        if len(recent):
+            avg_recent=recent.PnL.mean()
+            observation("Recent rhythm",f"Average daily result is {money(avg_recent)} across {len(recent)} trading days.","good" if avg_recent>0 else "bad")
     with b:
-        fig=px.area(day,x="sell_date",y="Drawdown",title="Drawdown — capital given back")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
+        fig=px.area(day,x="sell_date",y="Drawdown",title="Drawdown / capital given back")
+        chart(fig,300)
+        dd=day.Drawdown.min() if len(day) else 0
+        observation("Risk signal",f"Maximum recorded drawdown in loaded history is {money(dd)}.","warn" if dd<0 else "good")
 
-    # Clear success / failure evidence
-    st.subheader("🟢 What is working")
-    good=sym[sym.PnL>0].sort_values("PnL",ascending=False).head(7)
-    bad=sym[sym.PnL<0].sort_values("PnL").head(7)
+    # Concentration and cost visual
     a,b=st.columns(2)
     with a:
-        if len(good):
-            fig=px.bar(good.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="asset_class",title="Symbols with positive realised P&L")
-            st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
-        else: st.info("No profitable symbols in the current filter.")
+        sym=hf.groupby("symbol",as_index=False).agg(PnL=("pnl","sum")).sort_values("PnL")
+        show=pd.concat([sym.head(5),sym.tail(5)]).drop_duplicates().sort_values("PnL") if len(sym)>10 else sym
+        fig=px.bar(show,x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Top / bottom symbol contribution")
+        chart(fig,330)
+        if len(sym):
+            observation("Concentration",f"Best symbol contributed {money(sym.PnL.max())}; weakest contributed {money(sym.PnL.min())}.", "good" if sym.PnL.max()>abs(sym.PnL.min()) else "warn")
     with b:
-        if len(bad):
-            fig=px.bar(bad.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="asset_class",title="Symbols with negative realised P&L")
-            st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
-        else: st.success("No losing symbols in the current filter.")
-
-    # Pre-trade evidence, not predictions
-    if len(sym):
-        best=sym.loc[sym.PnL.idxmax()]
-        worst=sym.loc[sym.PnL.idxmin()]
-        if best.PnL>0:
-            insight_card("Evidence to carry forward",f"{best.symbol} is the strongest symbol in this selected history at {money(best.PnL)}. Review the setups, sizing and conditions behind those trades before repeating the process.","good")
-        if worst.PnL<0:
-            insight_card("Risk check",f"{worst.symbol} is the weakest symbol at {money(worst.PnL)}. Treat a new trade there as a review trigger: verify setup quality, size and exit plan before entry.","bad")
-    if avg_loss<0 and avg_win>0:
-        insight_card("Loss-size check",f"Average winner: {money(avg_win)} • average loser: {money(avg_loss)}. Before entry, define the maximum acceptable loss so one trade does not dominate several winners.","warn")
+        charge_by=f.groupby("asset_class",as_index=False).agg(Gross=("pnl","sum"))
+        if not ch.empty:
+            cc=ch.groupby("asset_class",as_index=False).agg(Charges=("amount","sum"))
+            charge_by=charge_by.merge(cc,on="asset_class",how="left").fillna(0)
+        else: charge_by["Charges"]=0
+        charge_by["Charge_%"]=np.where(charge_by.Gross.abs()>0,charge_by.Charges/charge_by.Gross.abs()*100,0)
+        fig=px.bar(charge_by,x="asset_class",y=["Gross","Charges"],barmode="group",title="Gross P&L vs charges")
+        chart(fig,330)
+        observation("Cost check",f"Total tracked charges in loaded data are {money(charge_by.Charges.sum())}. Watch high-turnover periods where charges consume a large share of gross P&L.","warn" if charge_by.Charges.sum()>max(0,charge_by.Gross.sum())*.15 else "info")
 
 with tabs[1]:
-    st.subheader("📅 Daily Signals")
-    st.caption("Find repeatable good/bad days and spikes. The goal is to improve the next decision, not to scroll through every historical trade.")
-
+    st.subheader("🗓️ Timeframe + Spike Engine")
     day=f.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
     day["Win_Rate"]=day.Wins/day.Trades
-    day["Type"]=np.where(day.PnL>0,"Profit day","Loss day")
-    day["abs_pnl"]=day.PnL.abs()
-    threshold=day.abs_pnl.mean()+2*day.abs_pnl.std() if len(day)>2 else np.inf
-    day["Spike"]=day.abs_pnl>threshold
+    day["Cumulative"]=day.PnL.cumsum()
+    day["AbsPnL"]=day.PnL.abs()
+    if len(day)>=4:
+        roll=day.AbsPnL.rolling(10,min_periods=3).median()
+        day["SpikeScore"]=day.AbsPnL/roll.replace(0,np.nan)
+        day["Spike"]=day.SpikeScore>=2
+    else:
+        day["SpikeScore"]=1.0; day["Spike"]=False
 
     monthly=f.groupby("month",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
     monthly["Win_Rate"]=monthly.Wins/monthly.Trades
-    monthly["Type"]=np.where(monthly.PnL>0,"Profitable month","Loss month")
     monthly["Cumulative"]=monthly.PnL.cumsum()
+    monthly["Type"]=np.where(monthly.PnL>=0,"Profit","Loss")
+
+    # Requested period views
+    period_rows=[]
+    latest=f.sell_date.max()
+    if pd.notna(latest):
+        prev=f[f.sell_date==latest]
+        cm=f[(f.sell_date.dt.year==latest.year)&(f.sell_date.dt.month==latest.month)]
+        y=f[f.sell_date.dt.year==latest.year]
+        period_rows=[
+            {"Period":"Previous day","PnL":prev.pnl.sum(),"Trades":len(prev),"WinRate":prev.win.mean()*100 if len(prev) else 0},
+            {"Period":"Current month","PnL":cm.pnl.sum(),"Trades":len(cm),"WinRate":cm.win.mean()*100 if len(cm) else 0},
+            {"Period":"Current year","PnL":y.pnl.sum(),"Trades":len(y),"WinRate":y.win.mean()*100 if len(y) else 0},
+            {"Period":"Overall","PnL":f.pnl.sum(),"Trades":len(f),"WinRate":f.win.mean()*100 if len(f) else 0}
+        ]
+    pv=pd.DataFrame(period_rows)
+    if len(pv):
+        a,b=st.columns(2)
+        with a:
+            fig=px.bar(pv,x="Period",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Previous day → month → year → overall")
+            chart(fig,300)
+            observation("Period comparison",f"Current month: {money(pv.loc[pv.Period=='Current month','PnL'].iloc[0])}; current year: {money(pv.loc[pv.Period=='Current year','PnL'].iloc[0])}. Use the comparison to see whether recent results are aligned with the longer record.","info")
+        with b:
+            fig=px.bar(pv,x="Period",y="WinRate",color="WinRate",color_continuous_scale="RdYlGn",title="Win rate by period")
+            fig.update_yaxes(ticksuffix="%")
+            chart(fig,300)
+            observation("Consistency",f"Overall win rate is {pv.loc[pv.Period=='Overall','WinRate'].iloc[0]:.1f}%; current month is {pv.loc[pv.Period=='Current month','WinRate'].iloc[0]:.1f}%.","good" if pv.loc[pv.Period=='Current month','WinRate'].iloc[0]>=pv.loc[pv.Period=='Overall','WinRate'].iloc[0] else "warn")
 
     a,b=st.columns(2)
     with a:
-        fig=px.bar(monthly,x="month",y="PnL",color="Type",title="Monthly result")
-        st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+        fig=px.bar(monthly,x="month",y="PnL",color="Type",title="Monthly P&L")
+        chart(fig,300)
+        observation("Monthly read",f"{int((monthly.PnL>0).sum())} profitable months and {int((monthly.PnL<0).sum())} loss months are visible in the loaded data.","good" if monthly.PnL.sum()>0 else "warn")
     with b:
-        fig=px.line(monthly,x="month",y="Cumulative",markers=True,title="Cumulative monthly path")
-        fig.update_traces(line_width=3)
-        st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+        fig=px.line(monthly,x="month",y="Cumulative",markers=True,title="Monthly cumulative path")
+        chart(fig,300)
+        observation("Trend",f"Ending monthly cumulative P&L is {money(monthly.Cumulative.iloc[-1]) if len(monthly) else '—'}.","good" if len(monthly) and monthly.Cumulative.iloc[-1]>0 else "warn")
 
-    st.subheader("🟢🔴 Good days vs bad days")
-    a,b=st.columns(2)
-    with a:
-        fig=px.bar(day,x="sell_date",y="PnL",color="Type",title="Every trading day")
-        st.plotly_chart(chart_layout(fig,310),use_container_width=True,config={"displayModeBar":False})
-    with b:
-        split=day.groupby("Type",as_index=False).size().rename(columns={"size":"Days"})
-        fig=px.pie(split,names="Type",values="Days",hole=.55,title="Share of profit vs loss days")
-        st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
-
-    a,b=st.columns(2)
-    with a:
-        best=day.nlargest(7,"PnL").sort_values("PnL")
-        fig=px.bar(best,x="PnL",y="sell_date",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Best days")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
-    with b:
-        worst=day.nsmallest(7,"PnL").sort_values("PnL")
-        fig=px.bar(worst,x="PnL",y="sell_date",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Worst days")
-        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
-
-    st.subheader("⚡ Spikes worth investigating")
-    spikes=day[day.Spike]
+    spikes=day[day.Spike].copy()
+    fig=px.bar(day,x="sell_date",y="PnL",color="Spike",title="Daily P&L + abnormal spikes")
+    chart(fig,330)
     if len(spikes):
-        fig=px.bar(spikes,x="sell_date",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Unusually large daily P&L moves")
-        st.plotly_chart(chart_layout(fig,280),use_container_width=True,config={"displayModeBar":False})
-        st.warning("Spike = daily P&L unusually large versus your own selected history. Review what changed that day: size, instrument, setup, number of trades and exit behaviour.")
+        worst=spikes.loc[spikes.PnL.abs().idxmax()]
+        observation("Spike alert",f"{len(spikes)} unusual daily move(s). Largest spike was {money(worst.PnL)} on {worst.sell_date.strftime('%d %b %Y')}. Review size, number of trades, instrument and exit discipline on those days.","warn")
     else:
-        st.success("No unusual daily P&L spike detected.")
+        observation("Spike alert","No abnormal daily P&L spike detected versus the rolling baseline.","good")
 
+    # Weekday and trade-size concentration
     fw=f.copy(); fw["Weekday"]=fw.sell_date.dt.day_name()
     order=["Monday","Tuesday","Wednesday","Thursday","Friday"]
     wd=fw.groupby("Weekday",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
-    wd["Win_Rate"]=wd.Wins/wd.Trades
-    wd["Weekday"]=pd.Categorical(wd.Weekday,categories=order,ordered=True)
-    wd=wd.sort_values("Weekday")
-    fig=px.bar(wd,x="Weekday",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="P&L by weekday")
-    st.plotly_chart(chart_layout(fig,275),use_container_width=True,config={"displayModeBar":False})
-
-    st.subheader("🗓️ Month quality")
-    splitm=monthly.groupby("Type",as_index=False).size().rename(columns={"size":"Months"})
-    fig=px.pie(splitm,names="Type",values="Months",hole=.55,title="Profitable vs loss months")
-    st.plotly_chart(chart_layout(fig,270),use_container_width=True,config={"displayModeBar":False})
+    wd["Weekday"]=pd.Categorical(wd.Weekday,categories=order,ordered=True); wd=wd.sort_values("Weekday")
+    a,b=st.columns(2)
+    with a:
+        fig=px.bar(wd,x="Weekday",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="P&L by weekday")
+        chart(fig,290)
+        if len(wd):
+            z=wd.loc[wd.PnL.abs().idxmax()]
+            observation("Weekday pattern",f"Largest absolute weekday contribution is {z.Weekday}: {money(z.PnL)}.","info")
+    with b:
+        if len(f)>1:
+            vals=f.pnl.abs()
+            q=vals.quantile(.9)
+            size_spikes=f[vals>=q]
+            fig=px.bar(size_spikes.sort_values("pnl"),x="pnl",y="symbol",orientation="h",color="pnl",color_continuous_scale="RdYlGn",title="Largest trade P&L spikes")
+            chart(fig,290)
+            observation("Trade spike",f"Top 10% of trade P&L magnitude contains {len(size_spikes)} trade(s). Check whether these are repeatable setups or oversized exceptions.","warn")
+        else:
+            st.info("More trades are needed for trade-spike analysis.")
 
 with tabs[2]:
-    st.subheader("🎯 F&O Edge")
-    st.caption("Use this to compare the parts of your F&O activity that have actually worked: futures/options, CE/PE and expiry vs non-expiry days.")
+    st.subheader("🎯 NIFTY • F&O • Commodities")
+    st.caption("The dashboard separates the buckets so the next setup can be checked against the same market/instrument family.")
+    fo=add_underlying(f)
 
-    ins=f.groupby(["asset_class","instrument"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
-    ins["Win_Rate"]=ins.Wins/ins.Trades
-    fig=px.bar(ins,x="instrument",y="PnL",color="asset_class",barmode="group",title="Futures vs Options vs Stocks")
-    st.plotly_chart(chart_layout(fig,285),use_container_width=True,config={"displayModeBar":False})
+    # Asset mix
+    av=fo.groupby("asset_class",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+    av["WinRate"]=av.Wins/av.Trades*100
+    a,b=st.columns(2)
+    with a:
+        fig=px.bar(av,x="asset_class",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks vs F&O vs Commodities")
+        chart(fig,300)
+        observation("Asset read","Compare contribution and win rate before assuming the next trade belongs in the same bucket.","info")
+    with b:
+        fig=px.pie(av,names="asset_class",values="Trades",hole=.58,title="Trade mix by asset")
+        chart(fig,300)
+        if len(av):
+            observation("Concentration",f"{av.Trades.max()/av.Trades.sum():.0%} of trades sit in {av.loc[av.Trades.idxmax(),'asset_class']}.","warn" if av.Trades.max()/av.Trades.sum()>.7 else "info")
 
-    op=f[f.option_type.notna()].copy()
+    # NIFTY family and F&O instrument breakdown
+    fo_mask=fo.asset_class.eq("F&O") | fo.Underlying.isin(["NIFTY","BANKNIFTY","FINNIFTY","MIDCPNIFTY","SENSEX","BANKEX"])
+    nf=fo[fo_mask].copy()
+    if len(nf):
+        uv=nf.groupby("Underlying",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+        uv["WinRate"]=uv.Wins/uv.Trades*100
+        a,b=st.columns(2)
+        with a:
+            fig=px.bar(uv.sort_values("PnL"),x="PnL",y="Underlying",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Index / F&O underlying contribution")
+            chart(fig,320)
+            best=uv.loc[uv.PnL.idxmax()]
+            observation("Underlying read",f"Highest realised contribution: {best.Underlying} at {money(best.PnL)}. Check the setup and sizing behind that result rather than copying the symbol alone.","good" if best.PnL>0 else "warn")
+        with b:
+            fig=px.bar(uv,x="Underlying",y="WinRate",color="WinRate",color_continuous_scale="RdYlGn",title="Win rate by underlying")
+            fig.update_yaxes(ticksuffix="%")
+            chart(fig,320)
+            observation("Consistency",f"Best observed underlying win rate: {uv.WinRate.max():.1f}%.","info")
+    else:
+        st.info("No NIFTY/index F&O rows detected in the loaded data yet. Upload an F&O EOD file and the dashboard will populate this section.")
+
+    op=fo[(fo.option_type.notna())].copy()
     if len(op):
         a,b=st.columns(2)
         with a:
-            cepe=op.groupby("option_type",as_index=False).agg(PnL=("pnl","sum"))
-            fig=px.pie(cepe,names="option_type",values="PnL",hole=.55,title="CE vs PE P&L contribution")
-            st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+            cepe=op.groupby("option_type",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
+            fig=px.bar(cepe,x="option_type",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="CE vs PE realised P&L")
+            chart(fig,290)
+            z=cepe.loc[cepe.PnL.idxmax()]
+            observation("Option-side read",f"{z.option_type} has the larger realised contribution at {money(z.PnL)}.","info")
         with b:
-            exp=op[op.expiry.notna()].groupby("expiry",as_index=False).agg(PnL=("pnl","sum")).sort_values("PnL")
-            if len(exp):
-                fig=px.bar(exp,x="expiry",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="P&L by option expiry")
-                st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+            ex=op[op.expiry.notna()].groupby("expiry",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
+            fig=px.bar(ex,x="expiry",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="P&L by expiry")
+            chart(fig,290)
+            observation("Expiry read",f"{len(ex)} expiry bucket(s) are represented. Check whether losses cluster around a specific expiry.","info")
 
-        op["is_expiry_day"]=op.apply(lambda r: pd.notna(r.sell_date) and pd.notna(r.expiry) and r.sell_date.strftime("%Y-%m-%d")==str(r.expiry),axis=1)
-        ex=op.groupby("is_expiry_day",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
-        ex["Day_Type"]=ex.is_expiry_day.map({True:"Expiry day",False:"Non-expiry day"})
-        fig=px.bar(ex,x="Day_Type",y="PnL",color="Day_Type",title="Expiry day vs non-expiry day")
-        st.plotly_chart(chart_layout(fig,285),use_container_width=True,config={"displayModeBar":False})
+        if "strike" in op.columns and op.strike.notna().any():
+            strike=op.groupby(["Underlying","option_type"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
+            fig=px.bar(strike,x="Underlying",y="PnL",color="option_type",barmode="group",title="Underlying × CE/PE contribution")
+            chart(fig,300)
+
+    com=fo[fo.asset_class.eq("Commodities")]
+    if len(com):
+        cv=com.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+        cv["WinRate"]=cv.Wins/cv.Trades*100
+        fig=px.bar(cv.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Commodity contribution")
+        chart(fig,310)
+        z=cv.loc[cv.PnL.idxmax()]
+        observation("Commodity read",f"Highest commodity contribution is {z.symbol} at {money(z.PnL)}.","info")
     else:
-        st.info("No option trades in the current filter.")
+        st.info("No commodity trades loaded yet.")
 
 with tabs[3]:
-    st.subheader("🧠 Pre-Trade Review")
-    st.caption("A short evidence-based checklist generated from your own history. It is deliberately focused on what to check before entering the next trade.")
+    st.subheader("🚦 Next-Trade Panel")
+    st.caption("This is a decision checklist built from your own realised history. It does not predict price direction or issue a Buy/Sell signal.")
 
-    sym=f.groupby(["asset_class","symbol"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Avg=("pnl","mean"))
-    sym["Win_Rate"]=sym.Wins/sym.Trades
-    ins=f.groupby(["asset_class","instrument"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
-    ins["Win_Rate"]=ins.Wins/ins.Trades
+    base=f.copy()
+    if len(base):
+        # Evidence blocks: strongest/weakest buckets and recent regime.
+        by_inst=base.groupby(["asset_class","instrument"],as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+        by_inst["WinRate"]=by_inst.Wins/by_inst.Trades*100
+        by_sym=base.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+        by_sym["WinRate"]=by_sym.Wins/by_sym.Trades*100
 
-    if len(sym):
-        best=sym.nlargest(1,"PnL").iloc[0]
-        worst=sym.nsmallest(1,"PnL").iloc[0]
-        if best.PnL>0:
-            insight_card("1. Reuse the process, not the symbol blindly",f"Your strongest selected symbol is {best.symbol}: {money(best.PnL)} across {int(best.Trades)} trades. Before another trade, identify what setup/conditions were common in its profitable trades.","good")
-        if worst.PnL<0:
-            insight_card("2. Slow down on repeated weak areas",f"{worst.symbol} is at {money(worst.PnL)} across {int(worst.Trades)} trades. Before another entry, require a clear setup and predefined exit instead of relying on the historical symbol name.","bad")
+        c1,c2,c3=st.columns(3)
+        strongest=by_inst.loc[by_inst.PnL.idxmax()] if len(by_inst) else None
+        weakest=by_inst.loc[by_inst.PnL.idxmin()] if len(by_inst) else None
+        recent20=base.sort_values("sell_date").tail(20)
+        c1.metric("Recent 20 P&L",money(recent20.pnl.sum()))
+        c2.metric("Recent win rate",pct(recent20.win.mean()) if len(recent20) else "0%")
+        c3.metric("Max single loss",money(base.pnl.min()))
 
-    if len(ins):
-        weak=ins.nsmallest(1,"PnL").iloc[0]
-        strong=ins.nlargest(1,"PnL").iloc[0]
-        if strong.PnL>0:
-            insight_card("3. Know your stronger instrument bucket",f"{strong.asset_class} {strong.instrument} contributes {money(strong.PnL)} in the selected history. Check whether the next setup matches the conditions behind those results.","good")
-        if weak.PnL<0:
-            insight_card("4. Risk-check your weaker instrument bucket",f"{weak.asset_class} {weak.instrument} contributes {money(weak.PnL)}. Before entry, check size, stop/exit plan and whether the setup is one you have historically handled well.","warn")
+        a,b=st.columns(2)
+        with a:
+            instplot=by_inst.sort_values("PnL")
+            fig=px.bar(instplot,x="PnL",y="instrument",color="PnL",color_continuous_scale="RdYlGn",title="Your historical edge by instrument")
+            chart(fig,310)
+            if strongest is not None:
+                observation("Before entering",f"Compare the proposed trade's instrument with your historical record: {strongest.asset_class} {strongest.instrument} has the largest contribution at {money(strongest.PnL)}.","good" if strongest.PnL>0 else "warn")
+        with b:
+            if len(by_sym):
+                top=by_sym.sort_values("PnL").tail(8)
+                fig=px.bar(top,x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Recent evidence: strongest symbols")
+                chart(fig,310)
+                observation("Do not chase",f"Historical symbol performance is evidence, not a reason by itself to enter. Verify today's setup independently.","warn")
+        
+        # Risk budget visual from actual losses
+        losses=base.loc[base.pnl<0,"pnl"].abs()
+        wins=base.loc[base.pnl>0,"pnl"]
+        risk=pd.DataFrame({"Bucket":["Median loss","90th pct loss","Median win","90th pct win"],
+                           "Amount":[losses.median() if len(losses) else 0,losses.quantile(.9) if len(losses) else 0,wins.median() if len(wins) else 0,wins.quantile(.9) if len(wins) else 0]})
+        fig=px.bar(risk,x="Bucket",y="Amount",color="Amount",color_continuous_scale="RdYlGn",title="Historical outcome size — use for risk planning")
+        chart(fig,300)
+        observation("Risk sizing prompt",f"Historical median loss is {money(losses.median()) if len(losses) else '—'} and 90th-percentile loss is {money(losses.quantile(.9)) if len(losses) else '—'}. Set your maximum loss before entry.","warn")
 
-    if f.loss.any():
-        largest=f.loc[f.loss].nsmallest(1,"pnl").iloc[0]
-        insight_card("5. Protect against a repeat of the largest loss",f"Largest recorded loss: {money(largest.pnl)} in {largest.symbol}. Define the maximum loss and position size before sending the order.","warn")
-
-    if charge>0:
-        insight_card("6. Check cost before high-turnover trades",f"Selected-period charges are {money(charge)}. If the setup has small expected movement, compare the planned payoff with your historical cost burden before entering.","warn")
-
-    # Compact decision checklist
-    st.subheader("✅ Before you press Buy / Sell")
+    st.markdown("### ✅ 30-second entry gate")
     checks=[
-        "Is this setup similar to a setup that has actually made money in my history?",
-        "Is position size consistent with my historical risk, not with how confident I feel today?",
-        "Where is the invalidation / maximum acceptable loss?",
-        "Is the expected move large enough to justify charges and slippage?",
-        "Am I entering because of a defined setup, or because I am trying to recover a recent loss?"
+        "Setup matches a defined playbook / pattern I have tested.",
+        "Instrument bucket is intentional (Stocks / NIFTY F&O / other F&O / Commodities).",
+        "Entry, invalidation and exit are defined before order placement.",
+        "Position size fits my pre-defined maximum loss.",
+        "Expected payoff is large enough to justify charges/slippage.",
+        "I am not entering to recover a recent loss or because of FOMO."
     ]
-    for i,c in enumerate(checks,1):
-        st.checkbox(c,key=f"pretrade_{i}")
-    st.caption("The dashboard uses historical evidence to frame questions. It does not predict the next trade or tell you what position to take.")
+    for i,q in enumerate(checks,1):
+        st.checkbox(q,key=f"decision_gate_{i}")
+    done=sum(st.session_state.get(f"decision_gate_{i}",False) for i in range(1,len(checks)+1))
+    st.progress(done/len(checks),text=f"Entry gate completed: {done}/{len(checks)}")
+    if done==len(checks):
+        st.success("All checklist items completed. The dashboard is ready for you to make your own trade decision.")
+    else:
+        st.info("Finish the checks that apply before entering. The dashboard deliberately does not turn historical performance into a Buy/Sell prediction.")
 
+st.markdown("---")
+st.caption("📱 Mobile-first • charts before tables • every chart has an observation • historical evidence only • Stocks + NIFTY/F&O + Commodities • previous day / month / year / overall views")
