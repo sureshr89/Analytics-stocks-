@@ -133,15 +133,28 @@ def extract(uploaded,filename):
     return sh,asset,ps,pe,rows,charges
 
 def save(uploaded,filename):
-    sh,asset,ps,pe,rows,charges=extract(uploaded,filename); c=conn()
-    if c.execute("select 1 from sources where source_hash=?",(sh,)).fetchone(): return 0,"Already uploaded",asset
-    for r in rows:
-        c.execute("insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-          tuple(r[k] for k in ["trade_hash","source_hash","asset_class","symbol","instrument","option_type","strike","expiry","qty","buy_date","buy_price","buy_value","sell_date","sell_price","sell_value","pnl","remark","uploaded_at"]))
-    for label,amt in charges:
-        c.execute("insert or ignore into charges values(?,?,?,?,?,?)",(sh,asset,ps,pe,label,amt))
-    c.execute("insert into sources values(?,?,?,?,?,?,?,?)",(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec="seconds"),len(rows),sum(r["pnl"] for r in rows)))
-    c.commit(); return len(rows),"Imported",asset
+    sh,asset,ps,pe,rows,charges,report_gross,report_charges=extract(uploaded,filename); c=conn()
+    existing=c.execute('select source_hash,period_start,period_end from sources where asset_class=?',(asset,)).fetchall()
+    replace_hashes=[]; covered=False
+    if ps and pe:
+        nps=pd.to_datetime(ps); npe=pd.to_datetime(pe)
+        for old_hash,ops,ope in existing:
+            if not ops or not ope: continue
+            ods=pd.to_datetime(ops); ode=pd.to_datetime(ope)
+            if ods==nps and ode==npe: replace_hashes.append(old_hash)
+            elif ods>=nps and ode<=npe: replace_hashes.append(old_hash)
+            elif ods<=nps and ode>=npe: covered=True
+    if covered and not replace_hashes: return 0,'Already covered by existing report',asset
+    if replace_hashes:
+        q=','.join('?'*len(replace_hashes))
+        c.execute(f'delete from trades where source_hash in ({q})',replace_hashes)
+        c.execute(f'delete from charges where source_hash in ({q})',replace_hashes)
+        c.execute(f'delete from sources where source_hash in ({q})',replace_hashes)
+    if ps and pe: c.execute('delete from trades where asset_class=? and sell_date>=? and sell_date<=?',(asset,ps,pe))
+    for r in rows: c.execute('insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(r[k] for k in ['trade_hash','source_hash','asset_class','symbol','instrument','option_type','strike','expiry','qty','buy_date','buy_price','buy_value','sell_date','sell_price','sell_value','pnl','remark','uploaded_at']))
+    for label,amt in charges: c.execute('insert or ignore into charges values(?,?,?,?,?,?)',(sh,asset,ps,pe,label,amt))
+    c.execute('insert into sources(source_hash,filename,asset_class,period_start,period_end,uploaded_at,trade_count,gross_pnl,report_gross_pnl,report_charges) values(?,?,?,?,?,?,?,?,?,?)',(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec='seconds'),len(rows),sum(r['pnl'] for r in rows),report_gross,report_charges))
+    c.commit(); return len(rows),'Reconciled & imported',asset
 
 def money(x): return f"₹{x:,.0f}"
 def pct(x): return f"{x:.1%}"
