@@ -90,24 +90,29 @@ def conn():
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
-    # Repair source and charge periods from actual trade dates. Broker report
-    # headers can contain financial-year/date-range text unrelated to the
-    # report's trade period (for example a Last Trading Day report).
-    srcs=c.execute("select source_hash from sources").fetchall()
-    for (src_hash,) in srcs:
-        bounds=c.execute(
-            "select min(date(sell_date)), max(date(sell_date)) from trades where source_hash=? and sell_date is not null",
-            (src_hash,)
-        ).fetchone()
-        if bounds and bounds[0] and bounds[1]:
-            c.execute(
-                "update sources set period_start=?, period_end=? where source_hash=?",
-                (bounds[0],bounds[1],src_hash)
-            )
-            c.execute(
-                "update charges set period_start=?, period_end=? where source_hash=?",
-                (bounds[0],bounds[1],src_hash)
-            )
+    # Keep two different concepts separate:
+    #   * sources.period_* = actual trade coverage in the uploaded file
+    #   * sources.report_period_* = date range printed by the broker report
+    # Charges belong to the broker report period, not to the min/max trade
+    # dates. Mixing those periods can make a full-period charge total look
+    # like a one-day charge and incorrectly produce a Last Traded Day net P&L.
+    c.execute("""
+        update charges
+           set period_start=(
+               select report_period_start from sources s
+                where s.source_hash=charges.source_hash
+           ),
+               period_end=(
+               select report_period_end from sources s
+                where s.source_hash=charges.source_hash
+           )
+         where exists(
+               select 1 from sources s
+                where s.source_hash=charges.source_hash
+                  and s.report_period_start is not null
+                  and s.report_period_end is not null
+           )
+    """)
     c.commit(); return c
 
 def parse_date(v):
@@ -237,7 +242,14 @@ def save(uploaded,filename):
         c.execute(f'delete from sources where source_hash in ({q})',replace_hashes)
     if ps and pe: c.execute('delete from trades where asset_class=? and sell_date>=? and sell_date<=?',(asset,ps,pe))
     for r in rows: c.execute('insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(r[k] for k in ['trade_hash','source_hash','asset_class','symbol','instrument','option_type','strike','expiry','qty','buy_date','buy_price','buy_value','sell_date','sell_price','sell_value','pnl','remark','uploaded_at']))
-    for label,amt in charges: c.execute('insert or ignore into charges values(?,?,?,?,?,?)',(sh,asset,ps,pe,label,amt))
+    # Charges are report-level figures. Store the broker's printed report
+    # period, never the min/max dates of the individual trade rows.
+    charge_ps,charge_pe=report_ps,report_pe
+    for label,amt in charges:
+        c.execute(
+            'insert or replace into charges values(?,?,?,?,?,?)',
+            (sh,asset,charge_ps,charge_pe,label,amt)
+        )
     c.execute('insert into sources(source_hash,filename,asset_class,period_start,period_end,uploaded_at,trade_count,gross_pnl,report_gross_pnl,report_charges,report_period_start,report_period_end) values(?,?,?,?,?,?,?,?,?,?,?,?)',(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec='seconds'),len(rows),sum(r['pnl'] for r in rows),report_gross,report_charges,report_ps,report_pe))
     c.commit(); return len(rows),'Reconciled & imported',asset
 
@@ -461,8 +473,9 @@ def last_traded_day_view(x, asset_name="Stocks"):
     ].copy()
 
     # Only an exact one-day broker charge report may be used for this
-    # day's Net Realised P&L. Never attach a wider-period charge total to
-    # the day's trade rows merely because they came from the same file.
+    # day's Net Realised P&L. A report covering 01 Apr–19 Sep, for example,
+    # contains a total charge for that whole period and cannot be allocated
+    # to 17/18 Sep without transaction-level charge data.
     if not exact_day_ch.empty:
         source_meta=pd.read_sql_query(
             "select source_hash,report_period_start,report_period_end from sources where asset_class=?",
@@ -490,7 +503,10 @@ def last_traded_day_view(x, asset_name="Stocks"):
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
     st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded {asset_name} trade data")
+    st.caption(
+        f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded "
+        f"{asset_name} trade data • day P&L is calculated only from trades on this date"
+    )
 
     a,b,c,d,e=st.columns(5)
     a.metric("Net realised P&L",money(net) if net is not None else "Not available")
@@ -509,7 +525,9 @@ def last_traded_day_view(x, asset_name="Stocks"):
     else:
         st.warning(
             "⚠️ Day-specific charges are not available for this uploaded trading day. "
-            "A wider-period broker charge total is not allocated to one day."
+            "The uploaded broker report provides charges for a wider report period, "
+            "so that total is not allocated to one day. Net day P&L is intentionally "
+            "left unavailable rather than using an incorrect charge allocation."
         )
 
     a,b,c,d=st.columns(4)
@@ -688,7 +706,11 @@ def section_view(title,emoji,asset_name):
 
     if asset_name=="Stocks":
         stocks_timing_view(x)
-    st.caption(f"Note: broker charges are reconciled at {asset_name}/report level and are not allocated to individual symbols.")
+    st.caption(
+        f"Note: {asset_name} broker charges are reconciled at report level. "
+        "A report-level charge total is not distributed across individual symbols "
+        "or trading days unless the source itself contains day-specific charges."
+    )
 
 def overall_summary_view():
     """Current-year cumulative summary directly below the page title."""
