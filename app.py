@@ -253,7 +253,7 @@ def chart_layout(fig, height=300):
     return fig
 
 st.title("📊 Trading Journal")
-st.caption("Current-year trading analysis • Gross P&L • Charges • Net P&L • cumulative profit/loss")
+st.caption("Current-year trading analysis • Realised P&L • Charges • Net P&L • cumulative profit/loss")
 
 with st.sidebar:
     st.header("📤 Upload EOD")
@@ -497,7 +497,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
     st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded {asset_name} trade data")
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Gross P&L",money(gross))
+    a.metric("Realised P&L",money(gross))
     b.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
     c.metric("Net P&L",money(net) if net is not None else "Not available")
     d.metric("Trades",f"{len(day):,}")
@@ -534,7 +534,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
         sym.sort_values("PnL"),
         x="PnL",y="symbol",orientation="h",color="PnL",
         color_continuous_scale="RdYlGn",
-        title=f"Last traded day — gross P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
+        title=f"Last traded day — realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
     )
     fig.update_xaxes(tickformat=",.2f")
     chart(fig,max(320,min(700,260+len(sym)*32)))
@@ -555,19 +555,19 @@ def last_traded_day_view(x, asset_name="Stocks"):
     if net is not None:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-            f"{breakeven_trades} break-even • gross {money(gross)} − exact-day charges {money(day_charges)} = net {money(net)}."
+            f"{breakeven_trades} break-even • realised {money(gross)} − exact-day charges {money(day_charges)} = net {money(net)}."
         )
     else:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-            f"{breakeven_trades} break-even • gross {money(gross)}. "
+            f"{breakeven_trades} break-even • realised {money(gross)}. "
             "Day-specific charges are not available, so day net P&L is not allocated."
         )
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
     st.header(f"{emoji} {title}")
-    st.caption(f"{current_year} only • Gross P&L uses broker-reported EOD realised P&L when available • Net P&L = broker-reported gross P&L − reported charges")
+    st.caption(f"{current_year} only • Realised P&L uses broker-reported EOD realised P&L when available • Net realised P&L = Realised P&L − reported charges")
 
     if x.empty:
         st.info(f"No {title} trades loaded for {current_year}.")
@@ -579,7 +579,7 @@ def section_view(title,emoji,asset_name):
     pf=wins/losses if losses else np.inf
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Gross P&L",money(gross))
+    a.metric("Realised P&L",money(gross))
     b.metric("Charges",money(charges))
     c.metric("Net P&L",money(net))
     d.metric("Trades",f"{len(x):,}")
@@ -605,7 +605,7 @@ def section_view(title,emoji,asset_name):
     a,b=st.columns(2)
     with a:
         fig=px.line(daily,x="sell_date",y="Cumulative",markers=True,
-                    title=f"{title} — cumulative gross P&L ({current_year})")
+                    title=f"{title} — cumulative realised P&L ({current_year})")
         fig.update_yaxes(tickformat=",.2f")
         chart(fig,320)
     with b:
@@ -623,11 +623,11 @@ def section_view(title,emoji,asset_name):
              .sort_values("MonthNum")
     fig=px.bar(monthly,x="Month",y="PnL",color="PnL",
                color_continuous_scale="RdYlGn",
-               title=f"{title} — monthly gross P&L ({current_year})")
+               title=f"{title} — monthly realised P&L ({current_year})")
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
 
-    observation_text=f"Gross P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
+    observation_text=f"Realised P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
 
@@ -708,14 +708,14 @@ def overall_summary_view():
 
     st.markdown("### 📌 Cumulative details")
     a,b,c,d,e=st.columns(5)
-    a.metric("Gross P&L",money(total_gross))
+    a.metric("Realised P&L",money(total_gross))
     b.metric("Charges",money(total_charges))
     c.metric("Net P&L",money(total_net))
     d.metric("Trades",f"{total_trades:,}")
     e.metric("Win rate",pct(total_win_rate))
     st.caption(
         f"{current_year} cumulative across Stocks + Equity F&O + Commodities • "
-        "Gross P&L • broker-reported charges • Net P&L • cumulative performance"
+        "Realised P&L • broker-reported charges • Net P&L • cumulative performance"
     )
 
 overall_summary_view()
@@ -729,4 +729,4 @@ with tabs[2]:
     section_view("Commodities","⛽","Commodities")
 
 st.markdown("---")
-st.caption(f"📅 Dashboard scope: calendar year {current_year} only • three sections • gross P&L • reported charges • net P&L • cumulative profit/loss")
+st.caption(f"📅 Dashboard scope: calendar year {current_year} only • three sections • realised P&L • reported charges • net P&L • cumulative profit/loss")
