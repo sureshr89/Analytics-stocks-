@@ -611,8 +611,10 @@ def section_view(title,emoji,asset_name):
     # Stocks section only. Keep F&O and Commodities focused on day-level
     # reconciliation and P&L/charges analytics.
     if asset_name=="Stocks":
-        perfect=table[(table["WinRate"]==100)].copy()
-        failed=table[(table["FailureRate"]==100)].copy()
+        # Build the success/failure views directly from symbol aggregates.
+        # The Symbol analysis table was intentionally removed.
+        perfect=sym[sym["WinRate"]==100].copy()
+        failed=sym[sym["FailureRate"]==100].copy()
 
         st.subheader("🎯 100% Success vs 100% Failure stocks")
         st.caption(
