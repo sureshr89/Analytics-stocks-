@@ -33,7 +33,9 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   [data-testid="stMetricValue"] { font-size:1.05rem !important; }
   .stTabs [data-baseweb="tab"] { font-size:.7rem; padding:.45rem .5rem; }
   [data-testid="stHorizontalBlock"] { gap:.45rem; }
-  .js-plotly-plot { max-height:320px; }
+  .stPlotlyChart, .js-plotly-plot { width:100% !important; max-width:100% !important; max-height:none !important; }
+  .plot-container, .svg-container { width:100% !important; }
+  .js-plotly-plot .plotly { width:100% !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -446,53 +448,49 @@ def section_view(title,emoji,asset_name):
         "100% Failure = every completed trade for that stock was a loss."
     )
 
-    a,b=st.columns(2)
+    st.markdown("### 🟢 100% Success")
+    if perfect.empty:
+        st.info("No stock has a 100% success record in the current data.")
+    else:
+        p=perfect.sort_values(["Trades","PnL"],ascending=[False,False]).copy()
+        p["Label"]=p["symbol"]+" ("+p["Trades"].astype(int).astype(str)+" trades)"
+        fig=px.bar(
+            p.sort_values("PnL"),
+            x="PnL",
+            y="Label",
+            orientation="h",
+            text="PnL",
+            title="Stocks with 100% winning trades"
+        )
+        fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+        fig.update_xaxes(tickformat=",.2f")
+        chart(fig,max(300,min(650,230+len(p)*32)))
+        st.success(
+            "All trades were profitable for: "
+            + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in p.iterrows())
+        )
 
-    with a:
-        st.markdown("### 🟢 100% Success")
-        if perfect.empty:
-            st.info("No stock has a 100% success record in the current data.")
-        else:
-            p=perfect.sort_values(["Trades","PnL"],ascending=[False,False]).copy()
-            p["Label"]=p["symbol"]+" ("+p["Trades"].astype(int).astype(str)+" trades)"
-            fig=px.bar(
-                p.sort_values("PnL"),
-                x="PnL",
-                y="Label",
-                orientation="h",
-                text="PnL",
-                title="Stocks with 100% winning trades"
-            )
-            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
-            fig.update_xaxes(tickformat=",.2f")
-            chart(fig,max(280,min(560,220+len(p)*28)))
-            st.success(
-                "All trades were profitable for: "
-                + ", ".join(f"{r.symbol} ({int(r.Trades)})" for _,r in p.iterrows())
-            )
-
-    with b:
-        st.markdown("### 🔴 100% Failure")
-        if failed.empty:
-            st.info("No stock has a 100% failure record in the current data.")
-        else:
-            q=failed.sort_values(["Trades","PnL"],ascending=[False,True]).copy()
-            q["Label"]=q["symbol"]+" ("+q["Trades"].astype(int).astype(str)+" trades)"
-            fig=px.bar(
-                q.sort_values("PnL"),
-                x="PnL",
-                y="Label",
-                orientation="h",
-                text="PnL",
-                title="Stocks with 100% losing trades"
-            )
-            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
-            fig.update_xaxes(tickformat=",.2f")
-            chart(fig,max(280,min(560,220+len(q)*28)))
-            st.error(
-                "All trades were losing for: "
-                + ", ".join(f"{r.symbol} ({int(r.Trades)})" for _,r in q.iterrows())
-            )
+    st.markdown("### 🔴 100% Failure")
+    if failed.empty:
+        st.info("No stock has a 100% failure record in the current data.")
+    else:
+        q=failed.sort_values(["Trades","PnL"],ascending=[False,True]).copy()
+        q["Label"]=q["symbol"]+" ("+q["Trades"].astype(int).astype(str)+" trades)"
+        fig=px.bar(
+            q.sort_values("PnL"),
+            x="PnL",
+            y="Label",
+            orientation="h",
+            text="PnL",
+            title="Stocks with 100% losing trades"
+        )
+        fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+        fig.update_xaxes(tickformat=",.2f")
+        chart(fig,max(300,min(650,230+len(q)*32)))
+        st.error(
+            "All trades were losing for: "
+            + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in q.iterrows())
+        )
 
     if asset_name=="Stocks":
         stocks_timing_view(x)
