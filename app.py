@@ -502,21 +502,41 @@ def stocks_timing_view(x):
         if not win_by_day.empty:
             fig=px.pie(
                 win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — share of winning trades by entry weekday"
+                title="Stocks — winning trade distribution by entry weekday"
             )
             chart(fig,300)
     with b:
         if not loss_by_day.empty:
             fig=px.pie(
                 loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — share of losing trades by entry weekday"
+                title="Stocks — losing trade distribution by entry weekday"
             )
             chart(fig,300)
 
+    st.caption(
+        "Pie percentages are the share of all winning trades or all losing trades by weekday. "
+        "Break-even trades are excluded from both pies."
+    )
+
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
-        if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(abs(bad.PnL))} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
+        good_day=good.BuyDay; bad_day=bad.BuyDay
+        good_wins=int(((t.BuyDay==good_day)&(t.pnl>0)).sum())
+        good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
+        bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
+        bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
+        if good.PnL>0:
+            st.success(
+                f"🔎 What went good (P&L): {good_day} produced {money(good.PnL)} "
+                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate; "
+                f"{good_wins} wins, {good_losses} losses)."
+            )
+        if bad.PnL<0:
+            st.error(
+                f"🔎 What went bad (P&L): {bad_day} lost {money(abs(bad.PnL))} "
+                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate; "
+                f"{bad_wins} wins, {bad_losses} losses)."
+            )
 
 def weekday_pnl_view(x, title):
     st.subheader("📅 Entry weekday analysis")
@@ -537,29 +557,41 @@ def weekday_pnl_view(x, title):
         if not win_by_day.empty:
             fig=px.pie(
                 win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — share of winning trades by entry weekday"
+                title=f"{title} — winning trade distribution by entry weekday"
             )
             chart(fig,300)
     with b:
         if not loss_by_day.empty:
             fig=px.pie(
                 loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — share of losing trades by entry weekday"
+                title=f"{title} — losing trade distribution by entry weekday"
             )
             chart(fig,300)
+
+    st.caption(
+        "Pie percentages are the share of all winning trades or all losing trades by weekday. "
+        "Break-even trades are excluded from both pies."
+    )
 
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]
         bad=day.loc[day.PnL.idxmin()]
+        good_day=good.BuyDay; bad_day=bad.BuyDay
+        good_wins=int(((t.BuyDay==good_day)&(t.pnl>0)).sum())
+        good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
+        bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
+        bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
         if good.PnL>0:
             st.success(
-                f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} "
-                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate)."
+                f"🔎 What went good (P&L): {good_day} produced {money(good.PnL)} "
+                f"across {int(good.Trades)} trades ({pct(good.WinRate)} win rate; "
+                f"{good_wins} wins, {good_losses} losses)."
             )
         if bad.PnL<0:
             st.error(
-                f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} "
-                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate)."
+                f"🔎 What went bad (P&L): {bad_day} lost {money(abs(bad.PnL))} "
+                f"across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate; "
+                f"{bad_wins} wins, {bad_losses} losses)."
             )
 
 def section_view(title,emoji,asset_name):
