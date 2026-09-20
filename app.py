@@ -36,6 +36,7 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   .stPlotlyChart, .js-plotly-plot { width:100% !important; max-width:100% !important; max-height:none !important; }
   .plot-container, .svg-container { width:100% !important; }
   .js-plotly-plot .plotly { width:100% !important; }
+  .stPlotlyChart, .stPlotlyChart * { pointer-events: none !important; }
   /* Prevent browser/Plotly touch gestures from turning a chart into a zoom surface */
   .stPlotlyChart,
   .stPlotlyChart *,
@@ -347,38 +348,108 @@ def stocks_timing_view(x):
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
-def last_traded_day_view(x, charges):
+def last_traded_day_view(x):
     last_day=x.sell_date.dropna().max()
     day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
     if day.empty: return
-    day_gross=float(day.pnl.sum())
-    day_net=day_gross-float(charges)
+
+    # Use only charges belonging to the last traded day/report, never the
+    # whole Stocks-year charge total.
+    day_charges=float(
+        ch[(ch.asset_class=="Stocks") &
+           (ch.period_end.dt.normalize()==last_day.normalize()) &
+           (ch.charge_name.str.lower()=="total")].amount.sum()
+    )
+    gross=float(day.pnl.sum())
+    net=gross-day_charges
     wins=float(day.loc[day.pnl>0,"pnl"].sum())
-    losses=abs(float(day.loc[day.pnl<0,"pnl"].sum()))
+    losses=float(day.loc[day.pnl<0,"pnl"].sum())
+    winning_trades=int((day.pnl>0).sum())
+    losing_trades=int((day.pnl<0).sum())
+    breakeven_trades=int((day.pnl==0).sum())
     win_rate=float((day.pnl>0).mean()*100)
+    profit_factor=(wins/abs(losses)) if losses else np.inf
+
     st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in the uploaded Stocks data")
+    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks")
+
     a,b,c,d,e=st.columns(5)
-    a.metric("Gross P&L",money(day_gross))
-    b.metric("Charges",money(charges))
-    c.metric("Net P&L",money(day_net))
+    a.metric("Gross P&L",money(gross))
+    b.metric("Charges",money(day_charges))
+    c.metric("Net P&L",money(net))
     d.metric("Trades",f"{len(day):,}")
     e.metric("Win rate",pct(win_rate))
-    if day_net>0:
-        st.success(f"🟢 What went good: last traded day closed NET PROFITABLE by {money(day_net)} after reported charges.")
-    elif day_net<0:
-        st.error(f"🔴 What went bad: last traded day closed NET LOSS of {money(day_net)} after reported charges.")
+
+    if net>0:
+        st.success(f"🟢 What went good: NET PROFIT of {money(net)} after day-specific charges.")
+    elif net<0:
+        st.error(f"🔴 What went bad: NET LOSS of {money(net)} after day-specific charges.")
     else:
-        st.info("🔵 Last traded day was approximately break-even after reported charges.")
-    sym=day.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
-    fig=px.bar(sym.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Last traded day — P&L by stock")
-    fig.update_xaxes(tickformat=",.2f"); chart(fig,320)
-    if not sym.empty:
-        best=sym.loc[sym.PnL.idxmax()]
-        worst=sym.loc[sym.PnL.idxmin()]
-        if best.PnL>0: st.success(f"🔎 What went good: {best.symbol} contributed {money(best.PnL)}.")
-        if worst.PnL<0: st.error(f"🔎 What went bad: {worst.symbol} contributed {money(worst.PnL)}.")
-    st.markdown("---")
+        st.info("🔵 Last traded day was approximately break-even after day-specific charges.")
+
+    a,b,c,d=st.columns(4)
+    a.metric("Winning trades",f"{winning_trades}")
+    b.metric("Losing trades",f"{losing_trades}")
+    c.metric("Break-even",f"{breakeven_trades}")
+    d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
+
+    st.subheader("📊 Last traded day — P&L by stock")
+    sym=day.groupby("symbol",as_index=False).agg(
+        PnL=("pnl","sum"),Trades=("pnl","size"),
+        Wins=("pnl",lambda s:int((s>0).sum())),
+        Losses=("pnl",lambda s:int((s<0).sum()))
+    )
+    sym["WinRate"]=sym.Wins/sym.Trades*100
+    sym["Result"]=np.where(sym.PnL>0,"Profit",np.where(sym.PnL<0,"Loss","Break-even"))
+
+    fig=px.bar(
+        sym.sort_values("PnL"),
+        x="PnL",y="symbol",orientation="h",color="PnL",
+        color_continuous_scale="RdYlGn",
+        title="Last traded day — gross P&L by stock"
+    )
+    fig.update_xaxes(tickformat=",.2f")
+    chart(fig,max(320,min(700,260+len(sym)*32)))
+
+    best=sym.loc[sym.PnL.idxmax()]
+    worst=sym.loc[sym.PnL.idxmin()]
+    if best.PnL>0:
+        st.success(
+            f"🔎 What went good: {best.symbol} made {money(best.PnL)} "
+            f"({int(best.Wins)} wins / {int(best.Losses)} losses across {int(best.Trades)} trades)."
+        )
+    if worst.PnL<0:
+        st.error(
+            f"🔎 What went bad: {worst.symbol} lost {money(worst.PnL)} "
+            f"({int(worst.Wins)} wins / {int(worst.Losses)} losses across {int(worst.Trades)} trades)."
+        )
+
+    st.subheader("🧭 What went correct vs wrong")
+    correct=day[day.pnl>0].sort_values("pnl",ascending=False)
+    wrong=day[day.pnl<0].sort_values("pnl")
+
+    if not correct.empty:
+        st.success(
+            "✅ Correct: "
+            + " • ".join(f"{r.symbol} +{money(r.pnl)}" for _,r in correct.head(8).iterrows())
+            + f" • Total winning P&L: {money(wins)}"
+        )
+    else:
+        st.info("No profitable trades on the last traded day.")
+
+    if not wrong.empty:
+        st.error(
+            "❌ Wrong: "
+            + " • ".join(f"{r.symbol} {money(r.pnl)}" for _,r in wrong.head(8).iterrows())
+            + f" • Total losing P&L: {money(losses)}"
+        )
+    else:
+        st.info("No losing trades on the last traded day.")
+
+    st.caption(
+        f"Day summary: {winning_trades} wins, {losing_trades} losses, "
+        f"{breakeven_trades} break-even • gross {money(gross)} − charges {money(day_charges)} = net {money(net)}."
+    )
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
@@ -515,6 +586,7 @@ def section_view(title,emoji,asset_name):
         )
 
     if asset_name=="Stocks":
+        last_traded_day_view(x)
         stocks_timing_view(x)
     st.caption("Note: broker charges are available at section/report level in the current EOD format, so they are not falsely allocated to individual symbols.")
 
