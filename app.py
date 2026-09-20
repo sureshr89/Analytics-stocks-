@@ -421,16 +421,28 @@ def last_traded_day_view(x):
         stock_ch["period_end_dt"].eq(last_day.normalize())
     ].copy()
 
+    # Primary reconciliation: use the charge Total from the same uploaded
+    # broker source that contains the last trading day's trades. This is more
+    # reliable than trusting report-header dates, which Groww files can carry
+    # as broader FY/report ranges. Never sum multiple source Totals.
+    day_source_hashes=day["source_hash"].dropna().astype(str).unique().tolist()
+    if exact_day_ch.empty and day_source_hashes:
+        same_source_ch=stock_ch[stock_ch["source_hash"].isin(day_source_hashes)].copy()
+        if not same_source_ch.empty:
+            exact_day_ch=same_source_ch.sort_values("source_hash").drop_duplicates(
+                subset=["source_hash"],keep="last"
+            )
+
     # A corrected/re-uploaded report can leave more than one exact-day row in
     # the database. Use one broker Total for the day rather than summing
     # duplicate sources.
     if not exact_day_ch.empty:
         exact_day_ch=exact_day_ch.sort_values("source_hash").drop_duplicates(
-            subset=["period_start_dt","period_end_dt"],keep="last"
+            subset=["source_hash"],keep="last"
         )
 
     has_exact_day_charge=not exact_day_ch.empty
-    day_charges=float(exact_day_ch["amount"].iloc[0]) if has_exact_day_charge else 0.0
+    day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
