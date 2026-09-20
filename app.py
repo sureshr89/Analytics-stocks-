@@ -536,15 +536,11 @@ def last_traded_day_view(x, asset_name="Stocks"):
         )
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Last trading day",last_day.strftime("%d %b %Y"))
-    b.metric("Net realised P&L",money(net) if net is not None else "Not available")
-    c.metric("Realised P&L",money(gross))
-    d.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
-    e.metric("Trades",f"{len(day):,}")
-    # Win rate is shown in the detailed day metrics below to keep the date
-    # visible as the first card and prevent the trading date from being
-    # confused with the broker report end date.
-    st.metric("Win rate",pct(win_rate))
+    a.metric("Net realised P&L",money(net) if net is not None else "Not available")
+    b.metric("Realised P&L",money(gross))
+    c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
+    d.metric("Trades",f"{len(day):,}")
+    e.metric("Win rate",pct(win_rate))
 
     if has_exact_day_charge:
         if net>0:
