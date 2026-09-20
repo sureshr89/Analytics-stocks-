@@ -374,11 +374,27 @@ def last_traded_day_view(x):
 
     # Use only charges belonging to the last traded day/report, never the
     # whole Stocks-year charge total.
-    day_charges=float(
-        ch[(ch.asset_class=="Stocks") &
-           (ch.period_end.dt.normalize()==last_day.normalize()) &
-           (ch.charge_name.str.lower()=="total")].amount.sum()
-    )
+    # Charges may be reported by the broker for a report period rather
+    # than with a daily period_end. For the last traded day, find the
+    # most recent Stocks charge report that contains that trading day.
+    stock_ch=ch[(ch.asset_class=="Stocks") &
+                (ch.charge_name.str.lower()=="total")].copy()
+    day_charges=0.0
+    if not stock_ch.empty:
+        stock_ch["period_start"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").astype("datetime64[ns]")
+        stock_ch["period_end"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").astype("datetime64[ns]")
+        covered=stock_ch[
+            stock_ch["period_start"].notna() &
+            stock_ch["period_end"].notna() &
+            (stock_ch["period_start"].dt.normalize()<=last_day.normalize()) &
+            (stock_ch["period_end"].dt.normalize()>=last_day.normalize())
+        ]
+        if not covered.empty:
+            # Prefer the narrowest report period containing the day.
+            covered=covered.assign(
+                span=(covered["period_end"]-covered["period_start"]).dt.days
+            ).sort_values(["span","period_end"])
+            day_charges=float(covered.iloc[0]["amount"])
     gross=float(day.pnl.sum())
     net=gross-day_charges
     wins=float(day.loc[day.pnl>0,"pnl"].sum())
