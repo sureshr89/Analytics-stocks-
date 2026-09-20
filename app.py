@@ -579,9 +579,9 @@ def section_view(title,emoji,asset_name):
     pf=wins/losses if losses else np.inf
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Realised P&L",money(gross))
-    b.metric("Charges",money(charges))
-    c.metric("Net P&L",money(net))
+    a.metric("Net realised P&L",money(net))
+    b.metric("Realised P&L",money(gross))
+    c.metric("Charges",money(charges))
     d.metric("Trades",f"{len(x):,}")
     e.metric("Win rate",pct(win_rate))
 
@@ -708,9 +708,9 @@ def overall_summary_view():
 
     st.markdown("### 📌 Cumulative details")
     a,b,c,d,e=st.columns(5)
-    a.metric("Realised P&L",money(total_gross))
-    b.metric("Charges",money(total_charges))
-    c.metric("Net P&L",money(total_net))
+    a.metric("Net realised P&L",money(total_net))
+    b.metric("Realised P&L",money(total_gross))
+    c.metric("Charges",money(total_charges))
     d.metric("Trades",f"{total_trades:,}")
     e.metric("Win rate",pct(total_win_rate))
     st.caption(
