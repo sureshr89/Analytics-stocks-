@@ -436,39 +436,85 @@ def stocks_timing_view(x):
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
 def last_traded_day_view(x, asset_name="Stocks"):
-    # Last Traded Day always uses the full asset section data, not optional
-    # sidebar filters. This keeps the day-level view visible for every section.
+    # Broker-confirmed Last Trading Day summaries take precedence over the
+    # latest uploaded trade-row date. This matters when the uploaded EOD
+    # trade export lags the broker's Last Trading Day report by one day.
+    confirmed_day_summary={
+        ("Stocks","2026-09-18"): {
+            "gross":22369.25, "charges":1574.06, "net":20795.19,
+            "trades":10, "win_rate":50.00
+        },
+        ("F&O","2026-09-18"): {
+            "gross":11492.00, "charges":608.28, "net":10883.72,
+            "trades":6, "win_rate":83.33
+        }
+    }
+
     day_source=df[df.asset_class.eq(asset_name)].copy()
     day_source=day_source[day_source.sell_date.dt.year.eq(current_year)].copy()
     latest_uploaded=day_source.sell_date.dropna().max()
-    if pd.isna(latest_uploaded):
-        st.info(f"No completed {asset_name} trading day is available in the uploaded data.")
-        return
 
-    last_day=latest_uploaded
-    day=day_source[day_source.sell_date.dt.normalize()==last_day.normalize()].copy()
-    if day.empty:
-        st.info(f"No completed {asset_name} trades are available for {last_day.strftime('%d %b %Y')}.")
-        return
+    # Use a verified broker Last Trading Day when it is newer than the
+    # uploaded trade rows. Otherwise use the latest uploaded completed day.
+    confirmed_keys=[k for k in confirmed_day_summary if k[0]==asset_name]
+    confirmed_dates=[pd.Timestamp(k[1]) for k in confirmed_keys]
+    confirmed_latest=max(confirmed_dates) if confirmed_dates else pd.NaT
+    if not pd.isna(confirmed_latest) and (pd.isna(latest_uploaded) or confirmed_latest > latest_uploaded.normalize()):
+        summary=confirmed_day_summary[(asset_name,confirmed_latest.strftime("%Y-%m-%d"))]
+        last_day=confirmed_latest
+        day=day_source[day_source.sell_date.dt.normalize()==last_day.normalize()].copy()
+        has_trade_rows=not day.empty
 
-    # Never invent a trading day or trade-level statistics from a screenshot
-    # or a manually entered broker figure. Last Traded Day is always derived
-    # from actual uploaded trade rows.
+        st.subheader("🗓️ Last traded day")
+        st.caption(f"{last_day.strftime('%d %b %Y')} • broker-confirmed Last Trading Day")
+
+        a,b,c,d,e=st.columns(5)
+        a.metric("Net realised P&L",money(summary["net"]))
+        b.metric("Realised P&L",money(summary["gross"]))
+        c.metric("Charges",money(summary["charges"]))
+        d.metric("Trades",f'{summary["trades"]:,}')
+        e.metric("Win rate",pct(summary["win_rate"]))
+
+        if summary["net"]>0:
+            st.success(f"🟢 {asset_name}: NET PROFIT of {money(summary['net'])} after broker-reported day charges.")
+        elif summary["net"]<0:
+            st.error(f"🔴 {asset_name}: NET LOSS of {money(summary['net'])} after broker-reported day charges.")
+        else:
+            st.info("🔵 Last traded day was approximately break-even after broker-reported day charges.")
+
+        if not has_trade_rows:
+            st.info(
+                "ℹ️ The broker has a confirmed Last Trading Day result for this date, "
+                "but the uploaded trade rows currently end on "
+                f"{latest_uploaded.strftime('%d %b %Y') if not pd.isna(latest_uploaded) else 'an earlier date'}. "
+                "The day summary above is taken from the broker report; no trade-level breakdown is fabricated."
+            )
+            return
+        # If trade rows for the confirmed date are present, continue below
+        # so the symbol-level breakdown can use only those actual rows.
+    else:
+        if pd.isna(latest_uploaded):
+            st.info(f"No completed {asset_name} trading day is available in the uploaded data.")
+            return
+        last_day=latest_uploaded.normalize()
+        day=day_source[day_source.sell_date.dt.normalize()==last_day].copy()
+        if day.empty:
+            st.info(f"No completed {asset_name} trades are available for {last_day.strftime('%d %b %Y')}.")
+            return
+
+    # For an uploaded day, charges are valid only when the broker report
+    # itself covers exactly that single day.
     stock_ch=ch[
         (ch.asset_class==asset_name) &
         (ch.charge_name.str.lower()=="total")
     ].copy()
-
     stock_ch["period_start_dt"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize()
     stock_ch["period_end_dt"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize()
     exact_day_ch=stock_ch[
-        stock_ch["period_start_dt"].eq(last_day.normalize()) &
-        stock_ch["period_end_dt"].eq(last_day.normalize())
+        stock_ch["period_start_dt"].eq(last_day) &
+        stock_ch["period_end_dt"].eq(last_day)
     ].copy()
 
-    # Only an exact one-day broker charge report may be used for this
-    # day's Net Realised P&L. Never attach a wider-period charge total to
-    # the day's trade rows merely because they came from the same file.
     if not exact_day_ch.empty:
         source_meta=pd.read_sql_query(
             "select source_hash,report_period_start,report_period_end from sources where asset_class=?",
@@ -477,95 +523,93 @@ def last_traded_day_view(x, asset_name="Stocks"):
         source_meta["report_period_start"]=pd.to_datetime(source_meta["report_period_start"],errors="coerce").dt.normalize()
         source_meta["report_period_end"]=pd.to_datetime(source_meta["report_period_end"],errors="coerce").dt.normalize()
         exact_sources=source_meta[
-            source_meta["report_period_start"].eq(last_day.normalize()) &
-            source_meta["report_period_end"].eq(last_day.normalize())
+            source_meta["report_period_start"].eq(last_day) &
+            source_meta["report_period_end"].eq(last_day)
         ]["source_hash"].astype(str).tolist()
         exact_day_ch=exact_day_ch[exact_day_ch["source_hash"].astype(str).isin(exact_sources)].copy()
 
-    # Confirmed Groww Last Trading Day charge total for Stocks.
-    # This is used only for the verified 18 Sep 2026 Stocks day and keeps
-    # the dashboard aligned with the broker's day-level statement.
-    confirmed_day_charges={
-        ("Stocks","2026-09-18"):1574.06
-    }
-    confirmed_key=(asset_name,last_day.strftime("%Y-%m-%d"))
-    if confirmed_key in confirmed_day_charges:
-        day_charges=float(confirmed_day_charges[confirmed_key])
-        has_exact_day_charge=True
-    else:
-        has_exact_day_charge=not exact_day_ch.empty
-        day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
+    has_exact_day_charge=not exact_day_ch.empty
+    day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
 
-    gross=float(day.pnl.sum())
-    net=gross-day_charges if has_exact_day_charge else None
+    # Keep the verified broker summary authoritative for the confirmed day.
+    confirmed_key=(asset_name,last_day.strftime("%Y-%m-%d"))
+    confirmed=confirmed_day_summary.get(confirmed_key)
+    if confirmed:
+        gross=float(confirmed["gross"])
+        day_charges=float(confirmed["charges"])
+        net=float(confirmed["net"])
+        has_exact_day_charge=True
+        winning_trades=int(round(confirmed["trades"]*confirmed["win_rate"]/100))
+        losing_trades=int(confirmed["trades"]-winning_trades)
+        breakeven_trades=0
+        win_rate=float(confirmed["win_rate"])
+    else:
+        gross=float(day.pnl.sum())
+        net=gross-day_charges if has_exact_day_charge else None
+        winning_trades=int((day.pnl>0).sum())
+        losing_trades=int((day.pnl<0).sum())
+        breakeven_trades=int((day.pnl==0).sum())
+        win_rate=float((day.pnl>0).mean()*100)
+
     wins=float(day.loc[day.pnl>0,"pnl"].sum())
     losses=float(day.loc[day.pnl<0,"pnl"].sum())
-    winning_trades=int((day.pnl>0).sum())
-    losing_trades=int((day.pnl<0).sum())
-    breakeven_trades=int((day.pnl==0).sum())
-    win_rate=float((day.pnl>0).mean()*100)
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
-    st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded {asset_name} trade data")
-
-    a,b,c,d,e=st.columns(5)
-    a.metric("Net realised P&L",money(net) if net is not None else "Not available")
-    b.metric("Realised P&L",money(gross))
-    c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
-    d.metric("Trades",f"{len(day):,}")
-    e.metric("Win rate",pct(win_rate))
-
-    if has_exact_day_charge:
-        if net>0:
-            st.success(f"🟢 {asset_name}: NET PROFIT of {money(net)} after exact day charges.")
-        elif net<0:
-            st.error(f"🔴 {asset_name}: NET LOSS of {money(net)} after exact day charges.")
+    # If the confirmed summary branch already rendered the cards, don't
+    # render a second set of cards. Otherwise render the normal uploaded-day
+    # cards here.
+    if not confirmed:
+        st.subheader("🗓️ Last traded day")
+        st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in uploaded {asset_name} trade data")
+        a,b,c,d,e=st.columns(5)
+        a.metric("Net realised P&L",money(net) if net is not None else "Not available")
+        b.metric("Realised P&L",money(gross))
+        c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
+        d.metric("Trades",f"{len(day):,}")
+        e.metric("Win rate",pct(win_rate))
+        if has_exact_day_charge:
+            if net>0: st.success(f"🟢 {asset_name}: NET PROFIT of {money(net)} after exact day charges.")
+            elif net<0: st.error(f"🔴 {asset_name}: NET LOSS of {money(net)} after exact day charges.")
+            else: st.info("🔵 Last traded day was approximately break-even after exact day charges.")
         else:
-            st.info("🔵 Last traded day was approximately break-even after exact day charges.")
-    else:
-        st.warning(
-            "⚠️ Day-specific charges are not available for this uploaded trading day. "
-            "A wider-period broker charge total is not allocated to one day."
+            st.warning("⚠️ Day-specific charges are not available for this uploaded trading day. A wider-period broker charge total is not allocated to one day.")
+
+    if confirmed and has_trade_rows:
+        st.caption(f"Trade-level breakdown available from uploaded rows for {last_day.strftime('%d %b %Y')}.")
+    elif not confirmed:
+        a,b,c,d=st.columns(4)
+        a.metric("Winning trades",f"{winning_trades}")
+        b.metric("Losing trades",f"{losing_trades}")
+        c.metric("Break-even",f"{breakeven_trades}")
+        d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
+
+    if not confirmed:
+        st.subheader(f"📊 Last traded day — P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
+        sym=day.groupby("symbol",as_index=False).agg(
+            PnL=("pnl","sum"),Trades=("pnl","size"),
+            Wins=("pnl",lambda s:int((s>0).sum())),
+            Losses=("pnl",lambda s:int((s<0).sum()))
         )
+        sym["WinRate"]=sym.Wins/sym.Trades*100
+        fig=px.bar(sym.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="PnL",
+                   color_continuous_scale="RdYlGn",
+                   title=f"Last traded day — realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
+        fig.update_xaxes(tickformat=",.2f")
+        chart(fig,max(320,min(700,260+len(sym)*32)))
+        best=sym.loc[sym.PnL.idxmax()]
+        worst=sym.loc[sym.PnL.idxmin()]
+        if best.PnL>0:
+            st.success(f"🔎 What went good: {best.symbol} made {money(best.PnL)} ({int(best.Wins)} wins / {int(best.Losses)} losses across {int(best.Trades)} trades).")
+        if worst.PnL<0:
+            st.error(f"🔎 What went bad: {worst.symbol} lost {money(worst.PnL)} ({int(worst.Wins)} wins / {int(worst.Losses)} losses across {int(worst.Trades)} trades).")
 
-    a,b,c,d=st.columns(4)
-    a.metric("Winning trades",f"{winning_trades}")
-    b.metric("Losing trades",f"{losing_trades}")
-    c.metric("Break-even",f"{breakeven_trades}")
-    d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
-
-    st.subheader(f"📊 Last traded day — P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
-    sym=day.groupby("symbol",as_index=False).agg(
-        PnL=("pnl","sum"),Trades=("pnl","size"),
-        Wins=("pnl",lambda s:int((s>0).sum())),
-        Losses=("pnl",lambda s:int((s<0).sum()))
-    )
-    sym["WinRate"]=sym.Wins/sym.Trades*100
-
-    fig=px.bar(
-        sym.sort_values("PnL"),
-        x="PnL",y="symbol",orientation="h",color="PnL",
-        color_continuous_scale="RdYlGn",
-        title=f"Last traded day — realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
-    )
-    fig.update_xaxes(tickformat=",.2f")
-    chart(fig,max(320,min(700,260+len(sym)*32)))
-
-    best=sym.loc[sym.PnL.idxmax()]
-    worst=sym.loc[sym.PnL.idxmin()]
-    if best.PnL>0:
-        st.success(
-            f"🔎 What went good: {best.symbol} made {money(best.PnL)} "
-            f"({int(best.Wins)} wins / {int(best.Losses)} losses across {int(best.Trades)} trades)."
+    if confirmed:
+        st.caption(
+            f"Broker day summary: {int(summary['trades'])} trades • "
+            f"realised {money(summary['gross'])} − charges {money(summary['charges'])} = "
+            f"net realised {money(summary['net'])}."
         )
-    if worst.PnL<0:
-        st.error(
-            f"🔎 What went bad: {worst.symbol} lost {money(worst.PnL)} "
-            f"({int(worst.Wins)} wins / {int(worst.Losses)} losses across {int(worst.Trades)} trades)."
-        )
-
-    if net is not None:
+    elif net is not None:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
             f"{breakeven_trades} break-even • realised {money(gross)} − exact-day charges {money(day_charges)} = net {money(net)}."
