@@ -449,7 +449,7 @@ def stocks_timing_view(x):
             if not entry.empty:
                 good=entry.loc[entry.PnL.idxmax()]; bad=entry.loc[entry.PnL.idxmin()]
                 if good.PnL>0: st.success(f"🔎 What went good: {good['Entry Slot']} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-                if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+                if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(abs(bad.PnL))} across {int(bad.Trades)} trades.")
         with b:
             fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by exit time")
             fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
@@ -469,7 +469,7 @@ def stocks_timing_view(x):
         if not hour.empty:
             good=hour.loc[hour.PnL.idxmax()]; bad=hour.loc[hour.PnL.idxmin()]
             if good.PnL>0: st.success(f"🔎 What went good: {good['Buy time']} → {good['Exit time']} produced {money(good.PnL)} across {int(good.Trades)} trades.")
-            if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Buy time']} → {bad['Exit time']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+            if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Buy time']} → {bad['Exit time']} lost {money(abs(bad.PnL))} across {int(bad.Trades)} trades.")
         hold=t.dropna(subset=["HoldHours"])
         if not hold.empty and hold.HoldHours.notna().any():
             st.caption(f"Average holding time: {hold.HoldHours.mean():.2f} hours • Median: {hold.HoldHours.median():.2f} hours.")
@@ -483,21 +483,21 @@ def stocks_timing_view(x):
         if not win_by_day.empty:
             fig=px.pie(
                 win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — winning trades by weekday"
+                title="Stocks — share of winning trades by entry weekday"
             )
             chart(fig,300)
     with b:
         if not loss_by_day.empty:
             fig=px.pie(
                 loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — losing trades by weekday"
+                title="Stocks — share of losing trades by entry weekday"
             )
             chart(fig,300)
 
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
+        if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(abs(bad.PnL))} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
 def weekday_pnl_view(x, title):
     st.subheader("📅 Entry weekday analysis")
@@ -518,14 +518,14 @@ def weekday_pnl_view(x, title):
         if not win_by_day.empty:
             fig=px.pie(
                 win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — winning trades by weekday"
+                title=f"{title} — share of winning trades by entry weekday"
             )
             chart(fig,300)
     with b:
         if not loss_by_day.empty:
             fig=px.pie(
                 loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — losing trades by weekday"
+                title=f"{title} — share of losing trades by entry weekday"
             )
             chart(fig,300)
 
@@ -575,7 +575,7 @@ def section_view(title,emoji,asset_name):
     sym["WinRate"]=sym.Wins/sym.Trades*100
     sym["FailureRate"]=sym.Losses/sym.Trades*100
 
-    daily=x.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum"))
+    daily=x.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum")).sort_values("sell_date")
     daily["Cumulative"]=daily.PnL.cumsum()
     a,b=st.columns(2)
     with a:
