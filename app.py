@@ -457,31 +457,16 @@ def last_traded_day_view(x, asset_name="Stocks"):
         stock_ch["period_end_dt"].eq(last_day.normalize())
     ].copy()
 
-    day_source_hashes=day["source_hash"].dropna().astype(str).unique().tolist()
-    if exact_day_ch.empty and day_source_hashes:
-        same_source_ch=stock_ch[stock_ch["source_hash"].isin(day_source_hashes)].copy()
-        if not same_source_ch.empty:
-            exact_day_ch=same_source_ch.sort_values("source_hash").drop_duplicates(
-                subset=["source_hash"],keep="last"
-            )
-
+    # Only an exact one-day broker charge report may be used for this
+    # day's Net Realised P&L. Never attach a wider-period charge total to
+    # the day's trade rows merely because they came from the same file.
     if not exact_day_ch.empty:
         exact_day_ch=exact_day_ch.sort_values("source_hash").drop_duplicates(
             subset=["source_hash"],keep="last"
         )
 
-    confirmed_day_charges={
-        ("Stocks","2026-09-18"):1574.06,
-    }
-
     has_exact_day_charge=not exact_day_ch.empty
-    day_key=last_day.strftime("%Y-%m-%d")
-    confirmed_key=(asset_name,day_key)
-    if confirmed_key in confirmed_day_charges:
-        day_charges=float(confirmed_day_charges[confirmed_key])
-        has_exact_day_charge=True
-    else:
-        day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
+    day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
