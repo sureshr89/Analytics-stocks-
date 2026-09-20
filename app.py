@@ -253,6 +253,65 @@ def section_data(name):
     gross=float(x.pnl.sum())
     return x,charges,gross,gross-charges
 
+def stocks_yesterday_view(x):
+    if x.empty:
+        return
+    latest=x.sell_date.max()
+    if pd.isna(latest):
+        return
+    yday=latest.normalize()
+    y=x[x.sell_date.dt.normalize()==yday].copy()
+    if y.empty:
+        st.info(f"No Stocks trades found for {yday.strftime("%d %b %Y")}.")
+        return
+
+    st.subheader(f"📅 Yesterday — {yday.strftime("%d %b %Y")}")
+    gross=float(y.pnl.sum())
+    wins=float(y.loc[y.pnl>0,"pnl"].sum())
+    losses=float(y.loc[y.pnl<0,"pnl"].sum())
+    total_charges=float(ch_year[(ch_year.asset_class=="Stocks") & (ch_year.period_end.dt.normalize()==yday)].amount.sum()) if not ch_year.empty else 0.0
+    net=gross-total_charges
+    win_rate=float((y.pnl>0).mean()*100)
+
+    a,b,c,d,e=st.columns(5)
+    a.metric("Gross P&L",money(gross))
+    b.metric("Charges",money(total_charges))
+    c.metric("Net P&L",money(net))
+    d.metric("Trades",f"{len(y):,}")
+    e.metric("Win rate",pct(win_rate))
+
+    if net>0:
+        st.success(f"🟢 Yesterday was NET PROFITABLE by {money(net)} after reported charges.")
+    elif net<0:
+        st.error(f"🔴 Yesterday was a NET LOSS of {money(net)} after reported charges.")
+    else:
+        st.info("🔵 Yesterday was approximately break-even after reported charges.")
+
+    daily=y.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum"))
+    fig=px.bar(y,x="symbol",y="pnl",color="pnl",color_continuous_scale="RdYlGn",title="Yesterday — P&L by trade")
+    fig.update_yaxes(tickformat=",.2f")
+    chart(fig,310)
+
+    if not y.empty:
+        best=y.loc[y.pnl.idxmax()]
+        worst=y.loc[y.pnl.idxmin()]
+        if best.pnl>0:
+            st.success(f"🔎 What went good: {best.symbol} was the best trade at {money(best.pnl)}.")
+        if worst.pnl<0:
+            st.error(f"🔎 What went bad: {worst.symbol} was the weakest trade at {money(worst.pnl)}.")
+
+    sym=y.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
+    fig=px.bar(sym.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Yesterday — cumulative P&L by symbol")
+    fig.update_xaxes(tickformat=",.2f")
+    chart(fig,300)
+    best=sym.loc[sym.PnL.idxmax()]
+    worst=sym.loc[sym.PnL.idxmin()]
+    if best.PnL>0:
+        st.success(f"🔎 What went good: {best.symbol} contributed {money(best.PnL)}.")
+    if worst.PnL<0:
+        st.error(f"🔎 What went bad: {worst.symbol} contributed {money(worst.PnL)}.")
+    st.caption(f"Yesterday gross {money(gross)} − charges {money(total_charges)} = net {money(net)}.")
+
 def stocks_timing_view(x):
     st.subheader("⏰ Entry, exit & weekday analysis")
     buy_dt=pd.to_datetime(x.buy_date,errors="coerce")
@@ -402,6 +461,7 @@ def section_view(title,emoji,asset_name):
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
     if asset_name=="Stocks":
+        stocks_yesterday_view(x)
         stocks_timing_view(x)
     st.caption("Note: broker charges are available at section/report level in the current EOD format, so they are not falsely allocated to individual symbols.")
 
