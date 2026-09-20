@@ -95,7 +95,7 @@ def conn():
     #   * sources.report_period_* = date range printed by the broker report
     # Charges belong to the broker report period, not to the min/max trade
     # dates. Mixing those periods can make a full-period charge total look
-    # like a one-day charge and incorrectly produce a Last Traded Day net P&L.
+    # like a single-session charge.
     c.execute("""
         update charges
            set period_start=(
@@ -279,9 +279,8 @@ def save(uploaded,filename):
         c.execute(f'delete from trades where source_hash in ({q})',replace_hashes)
         c.execute(f'delete from charges where source_hash in ({q})',replace_hashes)
         c.execute(f'delete from sources where source_hash in ({q})',replace_hashes)
-    # Clear all old trades inside the broker report's stated period before
-    # inserting the current file. This prevents an older upload from making
-    # Last Trading Day appear later than the latest trade in the new file.
+    # Clear old trades inside the broker report's stated period before
+    # inserting the current file.
     if report_ps and report_pe:
         c.execute(
             'delete from trades where asset_class=? and date(sell_date)>=date(?) and date(sell_date)<=date(?)',
