@@ -276,14 +276,14 @@ def stocks_timing_view(x):
         fig=px.bar(entry,x="Entry Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry time")
         fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
         good=entry.loc[entry.PnL.idxmax()]; bad=entry.loc[entry.PnL.idxmin()]
-        if good.PnL>0: st.success(f"🔎 What went good: {good["Entry Slot"]} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad["Entry Slot"]} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+        if good.PnL>0: st.success(f"🔎 What went good: {good['Entry Slot']} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
+        if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Entry Slot']} lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
     with b:
         fig=px.bar(exit_,x="Exit Slot",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by exit time")
         fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
         good=exit_.loc[exit_.PnL.idxmax()]; bad=exit_.loc[exit_.PnL.idxmin()]
-        if good.PnL>0: st.success(f"🔎 What went good: {good["Exit Slot"]} exits produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
-        if bad.PnL<0: st.error(f"🔎 What went bad: {bad["Exit Slot"]} exits lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
+        if good.PnL>0: st.success(f"🔎 What went good: {good['Exit Slot']} exits produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
+        if bad.PnL<0: st.error(f"🔎 What went bad: {bad['Exit Slot']} exits lost {money(bad.PnL)} across {int(bad.Trades)} trades.")
     fig=px.bar(day,x="BuyDay",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Stocks — P&L by entry weekday")
     fig.update_yaxes(tickformat=",.2f"); chart(fig,310)
     if not day.empty:
