@@ -211,9 +211,9 @@ if not ch.empty:
 net=gross-charge
 
 # Compact KPI cards
-cols=st.columns(6)
-for c,label,val in zip(cols,["Gross P&L","Charges","Net P&L","Trades","Win rate","Profit factor"],
-                       [money(gross),money(charge),money(net),f"{n:,}",pct(f.win.mean()) if n else "0%",f"{wins/abs(losses):.2f}" if losses<0 else "∞"]):
+cols=st.columns(5)
+for c,label,val in zip(cols,["Gross P&L","Charges","Net P&L","Trades","Win rate"],
+                       [money(gross),money(charge),money(net),f"{n:,}",pct(f.win.mean()) if n else "0%"]):
     c.metric(label,val)
 
 tabs=st.tabs(["🏠 Overview","📅 Daily / Monthly","🏆 Success Analysis","⚠️ Review"])
@@ -241,7 +241,6 @@ with tabs[1]:
     m=f.groupby("month").agg(Gross_PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("loss","sum")).reset_index()
     m["Win_Rate"]=m.Wins/m.Trades; m["Cumulative_Gross"]=m.Gross_PnL.cumsum()
     st.subheader("Month-wise")
-    st.dataframe(m.style.format({"Gross_PnL":"₹{:,.0f}","Cumulative_Gross":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
     x,y=st.columns(2)
     with x:
         fig=px.bar(m,x="month",y="Gross_PnL",title="Monthly P&L",color="Gross_PnL",color_continuous_scale="RdYlGn")
@@ -275,13 +274,10 @@ with tabs[2]:
     c3.metric("Best day", money(best_day.PnL) if best_day is not None else "—")
     c4.metric("Worst day", money(worst_day.PnL) if worst_day is not None else "—")
 
-    st.subheader("📅 Best and worst trading days")
+    st.subheader("📅 Trading-day P&L pattern")
     if len(day):
-        st.dataframe(
-            day.sort_values("PnL",ascending=False)[["Day","PnL","Trades","Win_Rate"]]
-            .style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),
-            hide_index=True,use_container_width=True
-        )
+        fig=px.bar(day.sort_values("sell_date"),x="Day",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Every trading day")
+        st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
 
     # Weekday consistency
     weekday_order=["Monday","Tuesday","Wednesday","Thursday","Friday"]
@@ -291,7 +287,6 @@ with tabs[2]:
     wd=fw.groupby("Weekday").agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum")).reindex(weekday_order).dropna(how="all").reset_index()
     wd["Win_Rate"]=wd.Wins/wd.Trades
     st.subheader("🗓️ Which weekday works best?")
-    st.dataframe(wd.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
     if len(wd):
         fig=px.bar(wd,x="Weekday",y="PnL",title="P&L by weekday",color="PnL",color_continuous_scale="RdYlGn")
         st.plotly_chart(chart_layout(fig,260),use_container_width=True,config={"displayModeBar":False})
@@ -302,13 +297,7 @@ with tabs[2]:
     ).reset_index()
     sym["Win_Rate"]=sym.Wins/sym.Trades
     sym["Profitable"]=sym.PnL>0
-    st.subheader("📈 Which stocks/contracts are working?")
-    st.dataframe(
-        sym.sort_values(["PnL","Win_Rate"],ascending=[False,False])
-        .style.format({"PnL":"₹{:,.0f}","Avg_Trade":"₹{:,.0f}","Win_Rate":"{:.1%}"}),
-        hide_index=True,use_container_width=True
-    )
-
+    st.subheader("📈 Symbol success map")
     x,y=st.columns(2)
     with x:
         top=sym.nlargest(10,"PnL")
@@ -328,19 +317,26 @@ with tabs[2]:
     st.dataframe(mm.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
 
     # Instrument / option analysis
-    st.subheader("🔎 Instrument success")
-    q=f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum")).reset_index()
-    q["Win_Rate"]=q.Wins/q.Trades
-    st.dataframe(q.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
+    st.subheader("🔎 Instrument P&L")
+    q=f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size")).reset_index()
+    fig=px.bar(q,x="instrument",y="PnL",color="asset_class",barmode="group",title="Stocks vs Futures vs Options")
+    st.plotly_chart(chart_layout(fig,280),use_container_width=True,config={"displayModeBar":False})
     op=f[f.option_type.notna()]
     if len(op):
-        st.subheader("Options: CE vs PE")
-        ce=op.groupby("option_type").agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum")).reset_index()
-        ce["Win_Rate"]=ce.Wins/ce.Trades
-        st.dataframe(ce.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
-        exp=op.groupby("expiry").agg(PnL=("pnl","sum"),Trades=("pnl","size")).reset_index().sort_values("PnL",ascending=False)
-        st.subheader("Options by expiry")
-        st.dataframe(exp.style.format({"PnL":"₹{:,.0f}"}),hide_index=True,use_container_width=True)
+        x,y=st.columns(2)
+        with x:
+            ce=op.groupby("option_type",as_index=False).agg(PnL=("pnl","sum"))
+            fig=px.bar(ce,x="option_type",y="PnL",color="option_type",title="CE vs PE")
+            st.plotly_chart(chart_layout(fig,260),use_container_width=True,config={"displayModeBar":False})
+        with y:
+            exp=op.groupby("expiry",as_index=False).agg(PnL=("pnl","sum")).sort_values("PnL")
+            fig=px.bar(exp,x="expiry",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="P&L by expiry")
+            st.plotly_chart(chart_layout(fig,260),use_container_width=True,config={"displayModeBar":False})
+        op["is_expiry_day"]=op.apply(lambda r: pd.notna(r.sell_date) and pd.notna(r.expiry) and r.sell_date.strftime("%Y-%m-%d")==str(r.expiry),axis=1)
+        exd=op.groupby("is_expiry_day",as_index=False).agg(PnL=("pnl","sum"))
+        exd["Day_Type"]=exd.is_expiry_day.map({True:"Expiry day",False:"Non-expiry day"})
+        fig=px.bar(exd,x="Day_Type",y="PnL",color="Day_Type",title="Expiry day vs non-expiry day")
+        st.plotly_chart(chart_layout(fig,270),use_container_width=True,config={"displayModeBar":False})
 
 with tabs[3]:
     st.subheader("⚠️ What to review")
@@ -367,5 +363,8 @@ with tabs[3]:
         st.warning(f"**{title}**  \\n{msg}")
     st.caption("These are statistical review prompts from your trade history, not predictions or financial advice.")
     st.subheader("Largest losses to review")
-    st.dataframe(f.nsmallest(15,"pnl")[["sell_date","asset_class","instrument","symbol","qty","buy_price","sell_price","pnl","remark"]].style.format({"pnl":"₹{:,.0f}","buy_price":"₹{:,.2f}","sell_price":"₹{:,.2f}"}),hide_index=True,use_container_width=True)
+    ll=f.nsmallest(12,"pnl").copy()
+    ll["label"]=ll.symbol.astype(str)+" • "+ll.sell_date.dt.strftime("%d %b")
+    fig=px.bar(ll.sort_values("pnl"),x="pnl",y="label",orientation="h",color="asset_class",title="Largest losing trades")
+    st.plotly_chart(chart_layout(fig,340),use_container_width=True,config={"displayModeBar":False})
 
