@@ -1,11 +1,42 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sqlite3, hashlib, io, re, os
+import sqlite3, hashlib, io, re
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="Trading Journal & Analytics", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Trading Journal", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
+
 DB = "trading_journal.db"
+
+# ---------- Mobile-first visual design ----------
+st.markdown("""
+<style>
+:root { --bg:#0b1020; --card:#151c2f; --muted:#94a3b8; --text:#f8fafc; }
+.block-container { max-width: 1500px; padding: 1rem 1.1rem 3rem; }
+h1 { font-size: clamp(1.65rem, 4vw, 2.5rem) !important; margin-bottom:.15rem !important; }
+h2 { font-size: 1.35rem !important; }
+h3 { font-size: 1.05rem !important; }
+p, label, .stCaption { font-size: .86rem !important; }
+[data-testid="stMetric"] { background:linear-gradient(145deg,#151c2f,#10172a); border:1px solid #27324d; border-radius:14px; padding:.75rem .85rem; min-height:92px; }
+[data-testid="stMetricLabel"] { font-size:.72rem !important; color:#94a3b8 !important; }
+[data-testid="stMetricValue"] { font-size:1.25rem !important; font-weight:750 !important; }
+[data-testid="stMetricDelta"] { font-size:.7rem !important; }
+.stTabs [data-baseweb="tab"] { font-size:.78rem; padding:.55rem .65rem; }
+.stButton button, .stDownloadButton button { border-radius:10px; font-weight:700; }
+div[data-testid="stDataFrame"] { font-size:.72rem; }
+[data-testid="stFileUploader"] { border-radius:12px; }
+@media (max-width: 700px) {
+  .block-container { padding:.55rem .55rem 2rem; }
+  [data-testid="stMetric"] { min-height:82px; padding:.6rem .65rem; }
+  [data-testid="stMetricValue"] { font-size:1.05rem !important; }
+  .stTabs [data-baseweb="tab"] { font-size:.7rem; padding:.45rem .5rem; }
+  [data-testid="stHorizontalBlock"] { gap:.45rem; }
+  .js-plotly-plot { max-height:320px; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 def conn():
     c=sqlite3.connect(DB)
@@ -36,7 +67,8 @@ def period_from(raw):
     return (min(dates).strftime("%Y-%m-%d"),max(dates).strftime("%Y-%m-%d")) if len(dates)>=2 else (None,None)
 
 def option_fields(s):
-    s=str(s); opt="CE" if re.search(r"\bCall\b",s,re.I) else ("PE" if re.search(r"\bPut\b",s,re.I) else None)
+    s=str(s)
+    opt="CE" if re.search(r"\bCall\b",s,re.I) else ("PE" if re.search(r"\bPut\b",s,re.I) else None)
     m=re.search(r'\s(\d+(?:\.\d+)?)\s+(?:Call|Put)\s*$',s,re.I)
     strike=float(m.group(1)) if m else None
     m=re.search(r'\b(\d{1,2}\s+[A-Z]{3}\s+\d{2})\b',s,re.I)
@@ -106,103 +138,151 @@ def save(uploaded,filename):
     for r in rows:
         c.execute("insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
           tuple(r[k] for k in ["trade_hash","source_hash","asset_class","symbol","instrument","option_type","strike","expiry","qty","buy_date","buy_price","buy_value","sell_date","sell_price","sell_value","pnl","remark","uploaded_at"]))
-    for label,amt in charges:c.execute("insert or ignore into charges values(?,?,?,?,?,?)",(sh,asset,ps,pe,label,amt))
+    for label,amt in charges:
+        c.execute("insert or ignore into charges values(?,?,?,?,?,?)",(sh,asset,ps,pe,label,amt))
     c.execute("insert into sources values(?,?,?,?,?,?,?,?)",(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec="seconds"),len(rows),sum(r["pnl"] for r in rows)))
     c.commit(); return len(rows),"Imported",asset
 
 def money(x): return f"₹{x:,.0f}"
 def pct(x): return f"{x:.1%}"
 
-st.title("📊 Trading Journal & Analytics")
-st.caption("Upload any EOD report whenever you want. Exact duplicate files/trades are ignored and the dashboard rebuilds automatically.")
+def chart_layout(fig, height=300):
+    fig.update_layout(
+        height=height, margin=dict(l=10,r=10,t=45,b=10),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(size=11), hovermode="x unified",
+        legend=dict(orientation="h",y=1.08,x=0)
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(gridcolor="rgba(148,163,184,.12)", zerolinecolor="rgba(148,163,184,.25)")
+    return fig
+
+st.title("📊 Trading Journal")
+st.caption("Upload EOD files anytime • automatic history • duplicate protection • data-driven review")
 
 with st.sidebar:
-    st.header("1. Upload EOD")
-    uploads=st.file_uploader("Stocks / F&O / Commodities Excel",type=["xlsx","xls"],accept_multiple_files=True)
-    if uploads and st.button("Process & Update",type="primary"):
+    st.header("📤 Upload EOD")
+    uploads=st.file_uploader("Stocks / F&O / Commodities",type=["xlsx","xls"],accept_multiple_files=True)
+    if uploads and st.button("⚡ Process & Update",type="primary",use_container_width=True):
         for u in uploads:
-            n,msg,a=save(u,u.name); st.success(f"{u.name}: {msg} — {n} trades")
+            n,msg,a=save(u,u.name); st.success(f"{a}: {msg} • {n} trades")
         st.rerun()
 
 df=pd.read_sql_query("select * from trades",conn()); ch=pd.read_sql_query("select * from charges",conn())
 if df.empty:
-    st.info("Upload your first EOD Excel from the sidebar."); st.stop()
+    st.info("📤 Upload your first EOD Excel from the left sidebar.")
+    st.stop()
+
 df["sell_date"]=pd.to_datetime(df.sell_date,errors="coerce"); df["buy_date"]=pd.to_datetime(df.buy_date,errors="coerce")
 df["month"]=df.sell_date.dt.to_period("M").astype(str); df["win"]=df.pnl>0; df["loss"]=df.pnl<0
+
 with st.sidebar:
-    st.header("2. Filters")
-    asset=st.selectbox("Asset class",["All"]+sorted(df.asset_class.dropna().unique().tolist()))
+    st.header("🔎 Filters")
+    asset=st.selectbox("Asset",["All"]+sorted(df.asset_class.dropna().unique().tolist()))
     inst=st.selectbox("Instrument",["All"]+sorted(df.instrument.dropna().unique().tolist()))
     syms=st.multiselect("Symbols",sorted(df.symbol.dropna().unique().tolist()))
 f=df.copy()
-if asset!="All":f=f[f.asset_class==asset]
-if inst!="All":f=f[f.instrument==inst]
-if syms:f=f[f.symbol.isin(syms)]
+if asset!="All": f=f[f.asset_class==asset]
+if inst!="All": f=f[f.instrument==inst]
+if syms: f=f[f.symbol.isin(syms)]
 
 gross=f.pnl.sum(); wins=f.loc[f.win,"pnl"].sum(); losses=f.loc[f.loss,"pnl"].sum(); n=len(f)
-# Use latest broker charge snapshot for each selected asset, avoiding repeated cumulative-report charges.
 charge=0
 if not ch.empty:
     ch["period_end"]=pd.to_datetime(ch.period_end,errors="coerce")
     for a in f.asset_class.dropna().unique():
         z=ch[ch.asset_class==a]
         if len(z):
-            last=z.period_end.max(); charge+=z[(z.period_end==last)&(z.charge_name.str.lower()=="total")].amount.sum()
+            last=z.period_end.max()
+            charge += z[(z.period_end==last)&(z.charge_name.str.lower()=="total")].amount.sum()
 net=gross-charge
-a,b,c,d,e,fm=st.columns(6)
-a.metric("Gross P&L",money(gross)); b.metric("Charges",money(charge)); c.metric("Net P&L",money(net))
-d.metric("Trades",f"{n:,}"); e.metric("Win rate",pct(f.win.mean()) if n else "0%"); fm.metric("Profit factor",f"{wins/abs(losses):.2f}" if losses<0 else "∞")
 
-tabs=st.tabs(["📈 Dashboard","📅 Daily & Monthly","🔎 Deep Analysis","⚠️ Mistake Finder","🧾 Trades"])
+# Compact KPI cards
+cols=st.columns(6)
+for c,label,val in zip(cols,["Gross P&L","Charges","Net P&L","Trades","Win rate","Profit factor"],
+                       [money(gross),money(charge),money(net),f"{n:,}",pct(f.win.mean()) if n else "0%",f"{wins/abs(losses):.2f}" if losses<0 else "∞"]):
+    c.metric(label,val)
+
+tabs=st.tabs(["🏠 Overview","📅 Daily / Monthly","🔍 Analysis","⚠️ Review","🧾 Trades"])
+
 with tabs[0]:
     daily=f.groupby("sell_date",as_index=False).pnl.sum().sort_values("sell_date")
     daily["cumulative"]=daily.pnl.cumsum(); daily["peak"]=daily.cumulative.cummax(); daily["drawdown"]=daily.cumulative-daily.peak
     x,y=st.columns(2)
-    with x: st.subheader("Cumulative P&L"); st.line_chart(daily.set_index("sell_date")["cumulative"])
-    with y: st.subheader("Daily P&L"); st.bar_chart(daily.set_index("sell_date").pnl)
-    st.subheader("Drawdown"); st.area_chart(daily.set_index("sell_date").drawdown)
-    st.subheader("Segment performance")
-    st.dataframe(f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean"),Avg_Trade=("pnl","mean")).reset_index().sort_values("PnL"),hide_index=True,use_container_width=True)
+    with x:
+        fig=px.line(daily,x="sell_date",y="cumulative",markers=True,title="Cumulative P&L")
+        fig.update_traces(line_width=3)
+        st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+    with y:
+        fig=px.bar(daily,x="sell_date",y="pnl",title="Daily P&L")
+        fig.update_traces(marker_line_width=0)
+        st.plotly_chart(chart_layout(fig,290),use_container_width=True,config={"displayModeBar":False})
+    fig=px.area(daily,x="sell_date",y="drawdown",title="Drawdown")
+    st.plotly_chart(chart_layout(fig,250),use_container_width=True,config={"displayModeBar":False})
+
+    seg=f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean"),Avg_Trade=("pnl","mean")).reset_index().sort_values("PnL")
+    fig=px.bar(seg,x="PnL",y="instrument",color="asset_class",orientation="h",title="P&L by segment",text_auto=".2s")
+    st.plotly_chart(chart_layout(fig,300),use_container_width=True,config={"displayModeBar":False})
 
 with tabs[1]:
     m=f.groupby("month").agg(Gross_PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("loss","sum")).reset_index()
     m["Win_Rate"]=m.Wins/m.Trades; m["Cumulative_Gross"]=m.Gross_PnL.cumsum()
-    st.subheader("Month-wise performance"); st.dataframe(m,hide_index=True,use_container_width=True)
+    st.subheader("Month-wise")
+    st.dataframe(m.style.format({"Gross_PnL":"₹{:,.0f}","Cumulative_Gross":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
     x,y=st.columns(2)
-    with x: st.bar_chart(m.set_index("month").Gross_PnL)
-    with y: st.line_chart(m.set_index("month").Cumulative_Gross)
-    st.subheader("Daily performance"); st.line_chart(f.groupby("sell_date").pnl.sum())
+    with x:
+        fig=px.bar(m,x="month",y="Gross_PnL",title="Monthly P&L",color="Gross_PnL",color_continuous_scale="RdYlGn")
+        st.plotly_chart(chart_layout(fig,270),use_container_width=True,config={"displayModeBar":False})
+    with y:
+        fig=px.line(m,x="month",y="Cumulative_Gross",markers=True,title="Cumulative monthly P&L")
+        fig.update_traces(line_width=3)
+        st.plotly_chart(chart_layout(fig,270),use_container_width=True,config={"displayModeBar":False})
 
 with tabs[2]:
-    st.subheader("Instrument")
-    st.dataframe(f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean"),Avg_Trade=("pnl","mean")).reset_index(),hide_index=True,use_container_width=True)
+    st.subheader("Instrument breakdown")
+    q=f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean"),Avg_Trade=("pnl","mean")).reset_index()
+    st.dataframe(q.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}","Avg_Trade":"₹{:,.0f}"}),hide_index=True,use_container_width=True)
     op=f[f.option_type.notna()]
     if len(op):
-        st.subheader("Options: CE vs PE"); st.dataframe(op.groupby(["asset_class","option_type"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean"),Avg_Trade=("pnl","mean")).reset_index(),hide_index=True,use_container_width=True)
-        st.subheader("Options by expiry"); st.dataframe(op.groupby(["expiry"]).agg(PnL=("pnl","sum"),Trades=("pnl","size")).reset_index().sort_values("PnL"),hide_index=True,use_container_width=True)
+        st.subheader("Options: CE vs PE")
+        ce=op.groupby(["option_type"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean")).reset_index()
+        fig=px.bar(ce,x="option_type",y="PnL",color="option_type",title="Options P&L")
+        st.plotly_chart(chart_layout(fig,260),use_container_width=True,config={"displayModeBar":False})
+        st.dataframe(ce.style.format({"PnL":"₹{:,.0f}","Win_Rate":"{:.1%}"}),hide_index=True,use_container_width=True)
+        exp=op.groupby("expiry").agg(PnL=("pnl","sum"),Trades=("pnl","size")).reset_index().sort_values("PnL")
+        st.dataframe(exp.style.format({"PnL":"₹{:,.0f}"}),hide_index=True,use_container_width=True)
     sym=f.groupby(["asset_class","symbol"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum")).reset_index()
-    x,y=st.columns(2); x.write("Top winners"); x.dataframe(sym.nlargest(10,"PnL"),hide_index=True,use_container_width=True)
-    y.write("Biggest losers"); y.dataframe(sym.nsmallest(10,"PnL"),hide_index=True,use_container_width=True)
+    fig=px.bar(sym.nlargest(10,"PnL"),x="PnL",y="symbol",color="asset_class",orientation="h",title="Top 10 symbols")
+    st.plotly_chart(chart_layout(fig,320),use_container_width=True,config={"displayModeBar":False})
 
 with tabs[3]:
-    st.subheader("Automatic data-driven mistake finder")
+    st.subheader("⚠️ What to review")
     warnings=[]
     byins=f.groupby(["asset_class","instrument"]).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Win_Rate=("win","mean")).reset_index()
     for _,r in byins.iterrows():
-        if r.PnL<0 and r.Trades>=5:warnings.append(("Loss concentration",f"{r.asset_class} {r.instrument}: {money(r.PnL)} over {int(r.Trades)} trades. Review this segment before increasing size."))
-    if gross and charge>abs(gross)*0.10:warnings.append(("Cost drag",f"Charges of {money(charge)} are large relative to gross P&L. Review turnover and low-edge trades."))
+        if r.PnL<0 and r.Trades>=5:
+            warnings.append(("🔴 Loss concentration",f"{r.asset_class} {r.instrument}: {money(r.PnL)} over {int(r.Trades)} trades. Review this segment before increasing size."))
+    if gross and charge>abs(gross)*0.10:
+        warnings.append(("🟠 Cost drag",f"Charges {money(charge)} are large relative to gross P&L. Review turnover and low-edge trades."))
     if n:
-        avg=f.pnl.mean(); medwin=f.loc[f.win,"pnl"].median() if f.win.any() else np.nan; maxloss=abs(f.loc[f.loss,"pnl"].min()) if f.loss.any() else 0
-        if avg<0:warnings.append(("Negative expectancy",f"Average realised trade is {money(avg)}. Identify the losing setup before increasing size."))
-        if medwin and maxloss>3*medwin:warnings.append(("Loss sizing",f"Largest loss {money(maxloss)} is >3× median winning trade {money(medwin)}. Review stop-loss/position sizing."))
+        avg=f.pnl.mean(); medwin=f.loc[f.win,"pnl"].median() if f.win.any() else np.nan
+        maxloss=abs(f.loc[f.loss,"pnl"].min()) if f.loss.any() else 0
+        if avg<0:
+            warnings.append(("🔴 Negative expectancy",f"Average trade is {money(avg)}. Review recurring losing patterns before increasing size."))
+        if medwin and maxloss>3*medwin:
+            warnings.append(("🟡 Loss-size imbalance",f"Largest loss {money(maxloss)} is >3× median winner {money(medwin)}. Review position sizing and exits."))
     op=f[f.instrument=="Options"]
-    if len(op) and op.pnl.sum()<0:warnings.append(("Options review",f"Options are down {money(op.pnl.sum())}. Compare CE/PE, expiry and strike buckets."))
-    if not warnings:st.success("No major rule-based warnings for the selected filters.")
-    for title,msg in warnings:st.warning(f"**{title}:** {msg}")
-    st.caption("Alerts are statistical patterns in the uploaded data, not a prediction or financial advice.")
+    if len(op) and op.pnl.sum()<0:
+        warnings.append(("🟣 Options review",f"Options are down {money(op.pnl.sum())}. Compare CE/PE, expiry and strike buckets."))
+    if not warnings:
+        st.success("✅ No major rule-based warnings for the selected filters.")
+    for title,msg in warnings:
+        st.warning(f"**{title}**  
+{msg}")
+    st.caption("These are statistical review prompts from your trade history, not predictions or financial advice.")
     st.subheader("Largest losses to review")
-    st.dataframe(f.nsmallest(15,"pnl")[["sell_date","asset_class","instrument","symbol","qty","buy_price","sell_price","pnl","remark"]],hide_index=True,use_container_width=True)
+    st.dataframe(f.nsmallest(15,"pnl")[["sell_date","asset_class","instrument","symbol","qty","buy_price","sell_price","pnl","remark"]].style.format({"pnl":"₹{:,.0f}","buy_price":"₹{:,.2f}","sell_price":"₹{:,.2f}"}),hide_index=True,use_container_width=True)
 
 with tabs[4]:
     st.dataframe(f.sort_values("sell_date",ascending=False),hide_index=True,use_container_width=True)
-    st.download_button("Download filtered CSV",f.to_csv(index=False).encode(),"trading_journal.csv","text/csv")
+    st.download_button("⬇️ Download filtered CSV",f.to_csv(index=False).encode(),"trading_journal.csv","text/csv",use_container_width=True)
