@@ -33,19 +33,24 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   [data-testid="stMetricValue"] { font-size:1.05rem !important; }
   .stTabs [data-baseweb="tab"] { font-size:.7rem; padding:.45rem .5rem; }
   [data-testid="stHorizontalBlock"] { gap:.45rem; }
-  /* Force Streamlit column rows into a true 2-column mobile grid */
-  [data-testid="stHorizontalBlock"] {
-    display:flex !important;
-    flex-wrap:wrap !important;
+  /* Force only metric/card rows into a true 2-column mobile grid */
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) {
+    display:grid !important;
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    grid-auto-flow:row !important;
     width:100% !important;
     gap:.45rem !important;
   }
-  [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) > div[data-testid="column"] {
     box-sizing:border-box !important;
+    width:100% !important;
+    max-width:none !important;
     min-width:0 !important;
-    width:calc(50% - .225rem) !important;
-    max-width:calc(50% - .225rem) !important;
-    flex:0 0 calc(50% - .225rem) !important;
+    flex:none !important;
+  }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]) [data-testid="stMetric"] {
+    width:100% !important;
+    box-sizing:border-box !important;
   }
   .stPlotlyChart, .js-plotly-plot { width:100% !important; max-width:100% !important; max-height:none !important; }
   .plot-container, .svg-container { width:100% !important; }
