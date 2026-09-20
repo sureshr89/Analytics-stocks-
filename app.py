@@ -246,14 +246,11 @@ def safe_money(v):
     return money(float(v)) if pd.notna(v) else "—"
 
 def insight_card(title, body, kind="info"):
-    if kind=="good": st.success(f"**{title}**  
-{body}")
-    elif kind=="bad": st.error(f"**{title}**  
-{body}")
-    elif kind=="warn": st.warning(f"**{title}**  
-{body}")
-    else: st.info(f"**{title}**  
-{body}")
+    msg = "**" + str(title) + "**  \n" + str(body)
+    if kind=="good": st.success(msg)
+    elif kind=="bad": st.error(msg)
+    elif kind=="warn": st.warning(msg)
+    else: st.info(msg)
 
 with tabs[0]:
     st.subheader("🎯 Decision Dashboard")
