@@ -476,14 +476,23 @@ def stocks_timing_view(x):
     else:
         st.info("⏰ Entry/exit time analysis is waiting for EOD files that contain actual timestamps. The currently stored trade dates contain dates only, so no artificial time performance is shown.")
 
-    weekday_trades=day[["BuyDay","Trades"]].copy()
-    weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
-    if not weekday_trades.empty:
-        fig=px.pie(
-            weekday_trades,names="BuyDay",values="Trades",hole=0.45,
-            title="Stocks — trade distribution by entry weekday"
-        )
-        chart(fig,300)
+    win_by_day=t[t["pnl"]>0].groupby("BuyDay").size().reset_index(name="Trades")
+    loss_by_day=t[t["pnl"]<0].groupby("BuyDay").size().reset_index(name="Trades")
+    a,b=st.columns(2)
+    with a:
+        if not win_by_day.empty:
+            fig=px.pie(
+                win_by_day,names="BuyDay",values="Trades",hole=0.45,
+                title="Stocks — winning trades by weekday"
+            )
+            chart(fig,300)
+    with b:
+        if not loss_by_day.empty:
+            fig=px.pie(
+                loss_by_day,names="BuyDay",values="Trades",hole=0.45,
+                title="Stocks — losing trades by weekday"
+            )
+            chart(fig,300)
 
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]; bad=day.loc[day.PnL.idxmin()]
@@ -502,14 +511,23 @@ def weekday_pnl_view(x, title):
     day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
-    weekday_trades=day[["BuyDay","Trades"]].copy()
-    weekday_trades=weekday_trades[weekday_trades["Trades"]>0]
-    if not weekday_trades.empty:
-        fig=px.pie(
-            weekday_trades,names="BuyDay",values="Trades",hole=0.45,
-            title=f"{title} — trade distribution by entry weekday"
-        )
-        chart(fig,300)
+    win_by_day=t[t["pnl"]>0].groupby("BuyDay").size().reset_index(name="Trades")
+    loss_by_day=t[t["pnl"]<0].groupby("BuyDay").size().reset_index(name="Trades")
+    a,b=st.columns(2)
+    with a:
+        if not win_by_day.empty:
+            fig=px.pie(
+                win_by_day,names="BuyDay",values="Trades",hole=0.45,
+                title=f"{title} — winning trades by weekday"
+            )
+            chart(fig,300)
+    with b:
+        if not loss_by_day.empty:
+            fig=px.pie(
+                loss_by_day,names="BuyDay",values="Trades",hole=0.45,
+                title=f"{title} — losing trades by weekday"
+            )
+            chart(fig,300)
 
     if not day.empty:
         good=day.loc[day.PnL.idxmax()]
