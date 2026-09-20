@@ -557,20 +557,17 @@ def last_traded_day_view(x, asset_name="Stocks"):
     win_rate=float((day.pnl>0).mean()*100)
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
-    asset_label = {"F&O":"Equity F&O"}.get(asset_name, asset_name)
-    st.markdown(
-        f"### 🗓️ {asset_label} — Last Trading Day: **{last_day.strftime('%d %b %Y')}**"
-    )
+    st.subheader("🗓️ Last trading day — actual completed trade date")
     if report_end is not None and report_end != last_day:
         st.caption(
-            f"Broker report/data end: {report_end.strftime('%d %b %Y')} • "
+            f"Last trading day: {last_day.strftime('%d %b %Y')} • "
             f"Broker report end: {report_end.strftime('%d %b %Y')} • "
-            "Last Trading Day is derived from the latest actual completed Sell Date in the uploaded trade rows."
+            "calculated from the latest actual completed Sell Date in the uploaded trade rows."
         )
     else:
         st.caption(
             f"Last trading day: {last_day.strftime('%d %b %Y')} • "
-            "Derived from the latest actual completed Sell Date in the uploaded trade rows."
+            f"latest completed trading day in uploaded {asset_name} data"
         )
 
     a,b,c,d,e=st.columns(5)
@@ -586,7 +583,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
         elif net<0:
             st.error(f"🔴 {asset_name}: NET LOSS of {money(net)} after exact day charges.")
         else:
-            st.info("🔵 Last Trading Day was approximately break-even after exact day charges.")
+            st.info("🔵 Last traded day was approximately break-even after exact day charges.")
     else:
         st.warning(
             "⚠️ Day-specific charges are not available for this uploaded trading day. "
@@ -601,7 +598,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
     c.metric("Break-even",f"{breakeven_trades}")
     d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
 
-    st.subheader(f"📊 {asset_label} — Last Trading Day P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
+    st.subheader(f"📊 Last traded day — P&L by {('stock' if asset_name=='Stocks' else 'symbol')}")
     sym=day.groupby("symbol",as_index=False).agg(
         PnL=("pnl","sum"),Trades=("pnl","size"),
         Wins=("pnl",lambda s:int((s>0).sum())),
@@ -613,7 +610,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
         sym.sort_values("PnL"),
         x="PnL",y="symbol",orientation="h",color="PnL",
         color_continuous_scale="RdYlGn",
-        title=f"{asset_label} — Last Trading Day realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
+        title=f"Last traded day — realised P&L by {('stock' if asset_name=='Stocks' else 'symbol')}"
     )
     fig.update_xaxes(tickformat=",.2f")
     chart(fig,max(320,min(700,260+len(sym)*32)))
