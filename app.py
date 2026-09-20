@@ -570,9 +570,11 @@ def last_traded_day_view(x, asset_name="Stocks"):
         )
 
     a,b,c,d,e=st.columns(5)
-    a.metric("Net realised P&L",money(net) if net is not None else "Not available")
-    b.metric("Realised P&L",money(gross))
-    c.metric("Charges",money(day_charges) if has_exact_day_charge else "Not available")
+    # Trade-row P&L is gross/before charges unless an exact one-day broker
+    # charge record is available. Keep the labels explicit.
+    a.metric("Day realised P&L",money(gross))
+    b.metric("Day net P&L",money(net) if net is not None else "Not available")
+    c.metric("Day charges",money(day_charges) if has_exact_day_charge else "Not available")
     d.metric("Trades",f"{len(day):,}")
     e.metric("Win rate",pct(win_rate))
 
