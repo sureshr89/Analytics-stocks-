@@ -509,6 +509,7 @@ def stocks_timing_view(x):
                 title="Stocks — realised P&L by trading day (winning vs loss)"
             )
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
+            fig.update_xaxes(title_text="Day")
             fig.update_layout(legend_title_text="Day type")
             chart(fig,320)
 
