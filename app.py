@@ -522,30 +522,52 @@ def last_traded_day_view(x, asset_name="Stocks"):
 
     stock_ch["period_start_dt"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").dt.normalize()
     stock_ch["period_end_dt"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").dt.normalize()
-    exact_day_ch=stock_ch[
-        stock_ch["period_start_dt"].eq(last_day.normalize()) &
-        stock_ch["period_end_dt"].eq(last_day.normalize())
-    ].copy()
 
-    # Only an exact one-day broker charge report may be used for this
-    # day's Net Realised P&L. A report covering 01 Apr–19 Sep, for example,
-    # contains a total charge for that whole period and cannot be allocated
-    # to 17/18 Sep without transaction-level charge data.
-    if not exact_day_ch.empty:
-        source_meta=pd.read_sql_query(
-            "select source_hash,report_period_start,report_period_end from sources where asset_class=?",
-            conn(), params=(asset_name,)
-        )
-        source_meta["report_period_start"]=pd.to_datetime(source_meta["report_period_start"],errors="coerce").dt.normalize()
-        source_meta["report_period_end"]=pd.to_datetime(source_meta["report_period_end"],errors="coerce").dt.normalize()
-        exact_sources=source_meta[
-            source_meta["report_period_start"].eq(last_day.normalize()) &
-            source_meta["report_period_end"].eq(last_day.normalize())
-        ]["source_hash"].astype(str).tolist()
-        exact_day_ch=exact_day_ch[exact_day_ch["source_hash"].astype(str).isin(exact_sources)].copy()
+    # A broker report can cover a wider calendar window than the actual
+    # trading rows. If that report contains trades only on the Last Trading
+    # Day, its printed Total Charges belong to that day's activity and can be
+    # used for the day's Net P&L. This handles reports such as 17–19 Sep
+    # where the only completed trades are on 17 Sep.
+    source_meta=pd.read_sql_query(
+        "select source_hash,report_period_start,report_period_end,report_charges "
+        "from sources where asset_class=?",
+        conn(), params=(asset_name,)
+    )
+    source_meta["report_period_start"]=pd.to_datetime(
+        source_meta["report_period_start"],errors="coerce"
+    ).dt.normalize()
+    source_meta["report_period_end"]=pd.to_datetime(
+        source_meta["report_period_end"],errors="coerce"
+    ).dt.normalize()
 
-    has_exact_day_charge=not exact_day_ch.empty
-    day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
+    eligible_sources=[]
+    for _,src in source_meta.iterrows():
+        sh=str(src["source_hash"])
+        rps=src["report_period_start"]
+        rpe=src["report_period_end"]
+        report_charge=pd.to_numeric(src["report_charges"],errors="coerce")
+        if pd.isna(rps) or pd.isna(rpe) or pd.isna(report_charge):
+            continue
+        if not (rps <= last_day.normalize() <= rpe):
+            continue
+
+        src_trades=x[x["source_hash"].astype(str).eq(sh)].copy()
+        src_trades["sell_day"]=pd.to_datetime(
+            src_trades["sell_date"],errors="coerce"
+        ).dt.normalize()
+        src_trades=src_trades[src_trades["sell_day"].notna()]
+
+        # Use report-level charges only when every completed trade from that
+        # source falls on the Last Trading Day. Never allocate a multi-day
+        # charge total across days when the report contains other trading
+        # dates.
+        if not src_trades.empty and src_trades["sell_day"].eq(last_day.normalize()).all():
+            eligible_sources.append((sh,float(report_charge)))
+
+    # Prefer the most recently imported eligible source. This also means a
+    # newly uploaded one-day EOD file supersedes an older wider report.
+    has_exact_day_charge=bool(eligible_sources)
+    day_charges=eligible_sources[-1][1] if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
