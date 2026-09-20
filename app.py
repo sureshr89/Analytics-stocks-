@@ -85,6 +85,8 @@ def conn():
     scols={r[1] for r in c.execute("pragma table_info(sources)").fetchall()}
     if "report_gross_pnl" not in scols: c.execute("alter table sources add column report_gross_pnl REAL")
     if "report_charges" not in scols: c.execute("alter table sources add column report_charges REAL")
+    if "report_period_start" not in scols: c.execute("alter table sources add column report_period_start TEXT")
+    if "report_period_end" not in scols: c.execute("alter table sources add column report_period_end TEXT")
     c.execute("""CREATE TABLE IF NOT EXISTS charges(
       source_hash TEXT, asset_class TEXT, period_start TEXT, period_end TEXT,
       charge_name TEXT, amount REAL, PRIMARY KEY(source_hash,charge_name))""")
@@ -135,7 +137,8 @@ def option_fields(s):
 def extract(uploaded,filename):
     b=uploaded.getvalue(); sh=hashlib.sha256(b).hexdigest()
     xls=pd.ExcelFile(io.BytesIO(b)); raw0=pd.read_excel(io.BytesIO(b),sheet_name=xls.sheet_names[0],header=None)
-    ps,pe=period_from(raw0)
+    report_ps,report_pe=period_from(raw0)
+    ps,pe=report_ps,report_pe
     lowname=filename.lower()
     asset="Commodities" if "commodit" in lowname else ("Stocks" if "stocks" in lowname else "F&O")
     trade=None
@@ -209,10 +212,10 @@ def extract(uploaded,filename):
         ps=min(trade_dates).strftime("%Y-%m-%d")
         pe=max(trade_dates).strftime("%Y-%m-%d")
 
-    return sh,asset,ps,pe,rows,charges,report_gross,report_charges
+    return sh,asset,ps,pe,rows,charges,report_gross,report_charges,report_ps,report_pe
 
 def save(uploaded,filename):
-    sh,asset,ps,pe,rows,charges,report_gross,report_charges=extract(uploaded,filename); c=conn()
+    sh,asset,ps,pe,rows,charges,report_gross,report_charges,report_ps,report_pe=extract(uploaded,filename); c=conn()
     existing=c.execute('select source_hash,period_start,period_end from sources where asset_class=?',(asset,)).fetchall()
     replace_hashes=[]; covered=False
     # Re-process an identical source after parser/reconciliation fixes.
@@ -235,7 +238,7 @@ def save(uploaded,filename):
     if ps and pe: c.execute('delete from trades where asset_class=? and sell_date>=? and sell_date<=?',(asset,ps,pe))
     for r in rows: c.execute('insert or ignore into trades values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',tuple(r[k] for k in ['trade_hash','source_hash','asset_class','symbol','instrument','option_type','strike','expiry','qty','buy_date','buy_price','buy_value','sell_date','sell_price','sell_value','pnl','remark','uploaded_at']))
     for label,amt in charges: c.execute('insert or ignore into charges values(?,?,?,?,?,?)',(sh,asset,ps,pe,label,amt))
-    c.execute('insert into sources(source_hash,filename,asset_class,period_start,period_end,uploaded_at,trade_count,gross_pnl,report_gross_pnl,report_charges) values(?,?,?,?,?,?,?,?,?,?)',(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec='seconds'),len(rows),sum(r['pnl'] for r in rows),report_gross,report_charges))
+    c.execute('insert into sources(source_hash,filename,asset_class,period_start,period_end,uploaded_at,trade_count,gross_pnl,report_gross_pnl,report_charges,report_period_start,report_period_end) values(?,?,?,?,?,?,?,?,?,?,?,?)',(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec='seconds'),len(rows),sum(r['pnl'] for r in rows),report_gross,report_charges,report_ps,report_pe))
     c.commit(); return len(rows),'Reconciled & imported',asset
 
 def money(x): return f"₹{float(x):,.2f}"
@@ -461,9 +464,17 @@ def last_traded_day_view(x, asset_name="Stocks"):
     # day's Net Realised P&L. Never attach a wider-period charge total to
     # the day's trade rows merely because they came from the same file.
     if not exact_day_ch.empty:
-        exact_day_ch=exact_day_ch.sort_values("source_hash").drop_duplicates(
-            subset=["source_hash"],keep="last"
+        source_meta=pd.read_sql_query(
+            "select source_hash,report_period_start,report_period_end from sources where asset_class=?",
+            conn(), params=(asset_name,)
         )
+        source_meta["report_period_start"]=pd.to_datetime(source_meta["report_period_start"],errors="coerce").dt.normalize()
+        source_meta["report_period_end"]=pd.to_datetime(source_meta["report_period_end"],errors="coerce").dt.normalize()
+        exact_sources=source_meta[
+            source_meta["report_period_start"].eq(last_day.normalize()) &
+            source_meta["report_period_end"].eq(last_day.normalize())
+        ]["source_hash"].astype(str).tolist()
+        exact_day_ch=exact_day_ch[exact_day_ch["source_hash"].astype(str).isin(exact_sources)].copy()
 
     has_exact_day_charge=not exact_day_ch.empty
     day_charges=float(exact_day_ch["amount"].iloc[-1]) if has_exact_day_charge else 0.0
