@@ -33,6 +33,12 @@ div[data-testid="stDataFrame"] { font-size:.72rem; }
   [data-testid="stMetricValue"] { font-size:1.05rem !important; }
   .stTabs [data-baseweb="tab"] { font-size:.7rem; padding:.45rem .5rem; }
   [data-testid="stHorizontalBlock"] { gap:.45rem; }
+  /* Keep metric/card rows in a compact 2-column grid on phones */
+  .stColumns > div { min-width:0 !important; }
+  [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    width:calc(50% - .225rem) !important;
+    flex:0 0 calc(50% - .225rem) !important;
+  }
   .stPlotlyChart, .js-plotly-plot { width:100% !important; max-width:100% !important; max-height:none !important; }
   .plot-container, .svg-container { width:100% !important; }
   .js-plotly-plot .plotly { width:100% !important; }
