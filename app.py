@@ -444,7 +444,7 @@ def stocks_timing_view(x):
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
     day=t.groupby("BuyDay",dropna=True).agg(PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")).reset_index()
     day["WinRate"]=day.WinRate*100
-    day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
+    day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
     if has_time:
@@ -501,23 +501,23 @@ def stocks_timing_view(x):
             weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
             fig=px.bar(
                 weekday_chart,
-                x="BuyDay",
+                x="TradeDay",
                 y="PnL",
                 color="DayType",
                 category_orders={"BuyDay":weekdays},
                 color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
-                title="Stocks — winning days vs loss days"
+                title="Stocks — realised P&L by trading day (winning vs loss)"
             )
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
             fig.update_layout(legend_title_text="Day type")
             chart(fig,320)
 
 def weekday_pnl_view(x, title):
-    st.subheader("📅 Entry weekday analysis")
-    buy_dt=pd.to_datetime(x.buy_date,errors="coerce")
-    t=x.assign(BuyDay=buy_dt.dt.day_name())
+    st.subheader("📅 Winning day vs loss day")
+    sell_day_dt=pd.to_datetime(x.sell_date,errors="coerce")
+    t=x.assign(TradeDay=sell_day_dt.dt.day_name())
     weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
-    day=t.groupby("BuyDay",dropna=True).agg(
+    day=t.groupby("TradeDay",dropna=True).agg(
         PnL=("pnl","sum"),Trades=("pnl","size"),WinRate=("win","mean")
     ).reset_index()
     day["WinRate"]=day.WinRate*100
@@ -535,7 +535,7 @@ def weekday_pnl_view(x, title):
                 color="DayType",
                 category_orders={"BuyDay":weekdays},
                 color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
-                title=f"{title} — winning days vs loss days"
+                title=f"{title} — realised P&L by trading day (winning vs loss)"
             )
             fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
             fig.update_layout(legend_title_text="Day type")
