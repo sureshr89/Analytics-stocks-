@@ -765,6 +765,66 @@ def section_view(title,emoji,asset_name):
         "or trading days unless the source itself contains day-specific charges."
     )
 
+def overall_trading_day_analysis():
+    """Overall weekday analysis using trade counts, not P&L amounts."""
+    st.subheader("📅 Overall trading-day analysis")
+    sell_day_dt=pd.to_datetime(df.sell_date,errors="coerce")
+    t=df.assign(TradeDay=sell_day_dt.dt.day_name())
+    weekdays=["Monday","Tuesday","Wednesday","Thursday","Friday"]
+    day=t.groupby("TradeDay",dropna=True).agg(
+        Trades=("pnl","size"),
+        WinningTrades=("win","sum"),
+        LosingTrades=("loss","sum")
+    ).reset_index()
+    day["WinningTrades"]=day["WinningTrades"].astype(int)
+    day["LosingTrades"]=day["LosingTrades"].astype(int)
+    day["Order"]=pd.Categorical(day.TradeDay,categories=weekdays,ordered=True)
+    day=day.sort_values("Order")
+    day["DayType"]=np.where(
+        day["WinningTrades"]>day["LosingTrades"],"Winning day",
+        np.where(day["LosingTrades"]>day["WinningTrades"],"Loss day","Equal")
+    )
+
+    plot_df=day.melt(
+        id_vars=["TradeDay","DayType"],
+        value_vars=["WinningTrades","LosingTrades"],
+        var_name="Outcome",
+        value_name="TradeCount"
+    )
+    plot_df["Outcome"]=plot_df["Outcome"].map({
+        "WinningTrades":"Winning trades",
+        "LosingTrades":"Losing trades"
+    })
+    plot_df["DayLabel"]=plot_df["TradeDay"]+"<br>"+plot_df["DayType"]
+    day_order=[f"{d}<br>{day.loc[day.TradeDay.eq(d),'DayType'].iloc[0]}"
+               for d in weekdays if (day.TradeDay==d).any()]
+    fig=px.bar(
+        plot_df,
+        x="DayLabel",
+        y="TradeCount",
+        color="Outcome",
+        barmode="group",
+        category_orders={"DayLabel":day_order},
+        color_discrete_map={"Winning trades":PROFIT,"Losing trades":LOSS},
+        text="TradeCount",
+        title="Overall — winning vs losing trades by day"
+    )
+    fig.update_traces(textposition="outside",texttemplate="%{text}")
+    fig.update_yaxes(dtick=1,title_text="Number of trades")
+    fig.update_xaxes(title_text="Day")
+    fig.update_layout(legend_title_text="Trade outcome")
+    chart(fig,360)
+
+    most_win=day.loc[day.WinningTrades.idxmax()]
+    most_loss=day.loc[day.LosingTrades.idxmax()]
+    st.info(
+        f"🏆 Most winning day: **{most_win.TradeDay}** "
+        f"({int(most_win.WinningTrades)} winning trades) • "
+        f"Most loss day: **{most_loss.TradeDay}** "
+        f"({int(most_loss.LosingTrades)} losing trades). "
+        "Classification is based only on the number of winning and losing trades, not ₹ P&L."
+    )
+
 def overall_summary_view():
     """Current-year cumulative summary directly below the page title."""
     total_gross=0.0
@@ -788,6 +848,7 @@ def overall_summary_view():
         f"{current_year} cumulative across Stocks + Equity F&O + Commodities • "
         "Realised P&L • broker-reported charges • Net P&L • cumulative performance"
     )
+    overall_trading_day_analysis()
 
 overall_summary_view()
 
