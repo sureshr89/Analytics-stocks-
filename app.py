@@ -186,7 +186,7 @@ def chart_layout(fig, height=300):
     return fig
 
 st.title("📊 Trading Journal")
-st.caption("Upload EOD files anytime • automatic history • duplicate protection • data-driven review")
+st.caption("Upload EOD files anytime • automatic history • duplicate protection • gross/net reconciliation • data-driven review")
 
 with st.sidebar:
     st.header("📤 Upload EOD")
@@ -256,15 +256,16 @@ def period_frame(base, mode):
     if x.empty: return x
     latest=x["sell_date"].max()
     if pd.isna(latest): return x
-    if mode=="Previous day":
+    if mode=="Latest trading day":
         d=x[x.sell_date==latest]
         return d
+    today=pd.Timestamp(datetime.now().date())
     if mode=="Current month":
-        return x[(x.sell_date.dt.year==latest.year)&(x.sell_date.dt.month==latest.month)]
+        return x[(x.sell_date.dt.year==today.year)&(x.sell_date.dt.month==today.month)]
     if mode=="Past 3 months":
-        return x[x.sell_date>=latest-pd.DateOffset(months=3)]
+        return x[x.sell_date>=today-pd.DateOffset(months=3)]
     if mode=="Current year":
-        return x[x.sell_date.dt.year==latest.year]
+        return x[x.sell_date.dt.year==today.year]
     return x
 
 def period_label(mode, x):
@@ -285,7 +286,7 @@ tabs=st.tabs(["📊 Overview","🗓️ Periods & Spikes","🎯 NIFTY / F&O / Com
 
 # Global decision horizon
 st.markdown("### ⏱️ Decision horizon")
-horizon=st.radio("Use the same horizon across the dashboard",["Previous day","Current month","Past 3 months","Current year","All history"],horizontal=True,label_visibility="collapsed")
+horizon=st.radio("Use the same horizon across the dashboard",["Latest trading day","Current month","Past 3 months","Current year","All history"],horizontal=True,label_visibility="collapsed")
 hf=period_frame(f,horizon)
 if hf.empty: hf=f.copy()
 st.caption(period_label(horizon,hf))
@@ -303,7 +304,7 @@ with tabs[0]:
     avg_h=float(hf.pnl.mean()) if trades_h else 0
     pf=(hf.loc[hf.pnl>0,"pnl"].sum()/abs(hf.loc[hf.pnl<0,"pnl"].sum())) if (hf.pnl<0).any() else np.inf
     c1,c2,c3,c4,c5=st.columns(5)
-    c1.metric("Net P&L",money(gross_h))
+    # Trade P&L is gross realised P&L; charges are tracked separately.\n    horizon_charge=0.0\n    if not ch.empty and not hf.empty:\n        ch_tmp=ch.copy(); ch_tmp["period_end"]=pd.to_datetime(ch_tmp.period_end,errors="coerce")\n        horizon_charge=float(ch_tmp[(ch_tmp.asset_class.isin(hf.asset_class.unique())) & (ch_tmp.period_end>=hf.sell_date.min()) & (ch_tmp.period_end<=hf.sell_date.max()) & (ch_tmp.charge_name.str.lower()=="total")].amount.sum())\n    horizon_net=gross_h-horizon_charge\n    c1.metric("Net P&L (estimated)",money(horizon_net))
     c2.metric("Trades",f"{trades_h:,}")
     c3.metric("Win rate",pct(wins_h/trades_h) if trades_h else "0%")
     c4.metric("Avg trade",money(avg_h))
@@ -355,13 +356,13 @@ with tabs[0]:
         if len(sym):
             observation("Concentration",f"Best symbol contributed {money(sym.PnL.max())}; weakest contributed {money(sym.PnL.min())}.", "good" if sym.PnL.max()>abs(sym.PnL.min()) else "warn")
     with b:
-        charge_by=f.groupby("asset_class",as_index=False).agg(Gross=("pnl","sum"))
+        charge_by=hf.groupby("asset_class",as_index=False).agg(Gross=("pnl","sum"))
         if not ch.empty:
-            cc=ch.groupby("asset_class",as_index=False).agg(Charges=("amount","sum"))
+            cc=ch[(ch.period_end>=hf.sell_date.min()) & (ch.period_end<=hf.sell_date.max()) & (ch.charge_name.str.lower()=="total")].groupby("asset_class",as_index=False).agg(Charges=("amount","sum"))
             charge_by=charge_by.merge(cc,on="asset_class",how="left").fillna(0)
         else: charge_by["Charges"]=0
         charge_by["Charge_%"]=np.where(charge_by.Gross.abs()>0,charge_by.Charges/charge_by.Gross.abs()*100,0)
-        fig=px.bar(charge_by,x="asset_class",y=["Gross","Charges"],barmode="group",title="Gross P&L vs charges")
+        fig=px.bar(charge_by,x="asset_class",y=["Gross","Charges"],barmode="group",title="Gross P&L vs reported charges")
         chart(fig,330)
         observation("Cost check",f"Total tracked charges in loaded data are {money(charge_by.Charges.sum())}. Watch high-turnover periods where charges consume a large share of gross P&L.","warn" if charge_by.Charges.sum()>max(0,charge_by.Gross.sum())*.15 else "info")
 
@@ -400,7 +401,7 @@ with tabs[1]:
     if len(pv):
         a,b=st.columns(2)
         with a:
-            fig=px.bar(pv,x="Period",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Previous day → month → year → overall")
+            fig=px.bar(pv,x="Period",y="PnL",color="PnL",color_continuous_scale="RdYlGn",title="Latest trading day → current month → current year → overall")
             chart(fig,300)
             observation("Period comparison",f"Current month: {money(pv.loc[pv.Period=='Current month','PnL'].iloc[0])}; current year: {money(pv.loc[pv.Period=='Current year','PnL'].iloc[0])}. Use the comparison to see whether recent results are aligned with the longer record.","info")
         with b:
@@ -544,14 +545,14 @@ with tabs[3]:
         a,b=st.columns(2)
         with a:
             instplot=by_inst.sort_values("PnL")
-            fig=px.bar(instplot,x="PnL",y="instrument",color="PnL",color_continuous_scale="RdYlGn",title="Your historical edge by instrument")
+            fig=px.bar(instplot,x="PnL",y="instrument",color="PnL",color_continuous_scale="RdYlGn",title="Historical P&L by instrument")
             chart(fig,310)
             if strongest is not None:
                 observation("Before entering",f"Compare the proposed trade's instrument with your historical record: {strongest.asset_class} {strongest.instrument} has the largest contribution at {money(strongest.PnL)}.","good" if strongest.PnL>0 else "warn")
         with b:
             if len(by_sym):
                 top=by_sym.sort_values("PnL").tail(8)
-                fig=px.bar(top,x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Recent evidence: strongest symbols")
+                fig=px.bar(top,x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Highest cumulative P&L symbols")
                 chart(fig,310)
                 observation("Do not chase",f"Historical symbol performance is evidence, not a reason by itself to enter. Verify today's setup independently.","warn")
         
@@ -560,7 +561,7 @@ with tabs[3]:
         wins=base.loc[base.pnl>0,"pnl"]
         risk=pd.DataFrame({"Bucket":["Median loss","90th pct loss","Median win","90th pct win"],
                            "Amount":[losses.median() if len(losses) else 0,losses.quantile(.9) if len(losses) else 0,wins.median() if len(wins) else 0,wins.quantile(.9) if len(wins) else 0]})
-        fig=px.bar(risk,x="Bucket",y="Amount",color="Amount",color_continuous_scale="RdYlGn",title="Historical outcome size — use for risk planning")
+        fig=px.bar(risk,x="Bucket",y="Amount",color="Amount",color_continuous_scale="RdYlGn",title="Historical trade outcome size — risk reference")
         chart(fig,300)
         observation("Risk sizing prompt",f"Historical median loss is {money(losses.median()) if len(losses) else '—'} and 90th-percentile loss is {money(losses.quantile(.9)) if len(losses) else '—'}. Set your maximum loss before entry.","warn")
 
@@ -583,4 +584,4 @@ with tabs[3]:
         st.info("Finish the checks that apply before entering. The dashboard deliberately does not turn historical performance into a Buy/Sell prediction.")
 
 st.markdown("---")
-st.caption("📱 Mobile-first • charts before tables • every chart has an observation • historical evidence only • Stocks + NIFTY/F&O + Commodities • previous day / month / year / overall views")
+st.caption("📱 Mobile-first • charts before tables • every chart has an observation • historical evidence only • Stocks + NIFTY/F&O + Commodities • latest trading day / current month / current year / overall views")
