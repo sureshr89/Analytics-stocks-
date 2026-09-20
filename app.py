@@ -562,12 +562,14 @@ def last_traded_day_view(x, asset_name="Stocks"):
         # charge total across days when the report contains other trading
         # dates.
         if not src_trades.empty and src_trades["sell_day"].eq(last_day.normalize()).all():
-            eligible_sources.append((sh,float(report_charge)))
+            uploaded_at=str(src["uploaded_at"]) if not pd.isna(src["uploaded_at"]) else ""
+            eligible_sources.append((uploaded_at,sh,float(report_charge)))
 
-    # Prefer the most recently imported eligible source. This also means a
-    # newly uploaded one-day EOD file supersedes an older wider report.
+    # Prefer the most recently imported eligible source. This means the newest
+    # broker file is the source of truth when multiple matching uploads exist.
+    eligible_sources.sort(key=lambda item: item[0])
     has_exact_day_charge=bool(eligible_sources)
-    day_charges=eligible_sources[-1][1] if has_exact_day_charge else 0.0
+    day_charges=eligible_sources[-1][2] if has_exact_day_charge else 0.0
 
     gross=float(day.pnl.sum())
     net=gross-day_charges if has_exact_day_charge else None
@@ -591,24 +593,24 @@ def last_traded_day_view(x, asset_name="Stocks"):
             "Derived from the latest actual completed Sell Date in the uploaded trade rows."
         )
 
-    # The trade rows give us the actual realised P&L for the last
-    # trading day. Do not display a misleading "Not available" net value
-    # when the broker only supplies charges for the wider report period.
-    a,b,c,d=st.columns(4)
+    # Show the complete Last Trading Day reconciliation directly in the
+    # metric cards: realised P&L, broker charges, net P&L, trades and win rate.
+    # Charges are included only when the broker file can be tied to this
+    # trading day using the source-level rule above.
+    a,b,c,d,e=st.columns(5)
     a.metric("Day realised P&L",money(gross))
-    b.metric("Trades",f"{len(day):,}")
-    c.metric("Win rate",pct(win_rate))
-    d.metric("Profit factor",f"{profit_factor:.2f}" if np.isfinite(profit_factor) else "∞")
+    b.metric("Day charges",money(day_charges) if has_exact_day_charge else "Not available")
+    c.metric("Day net P&L",money(net) if has_exact_day_charge else "Not available")
+    d.metric("Trades",f"{len(day):,}")
+    e.metric("Win rate",pct(win_rate))
 
     if has_exact_day_charge:
         st.caption(
-            f"Day charges: {money(day_charges)} • Day net P&L: {money(net)} "
-            "after exact one-day broker charges."
+            f"Day net P&L = realised {money(gross)} − charges {money(day_charges)} = {money(net)}."
         )
     else:
         st.caption(
-            "Day net P&L is not shown because the broker report provides "
-            "charges for the wider report period, not this individual trading day."
+            "Day-specific charges are not available from the uploaded broker report."
         )
 
     if has_exact_day_charge:
@@ -620,10 +622,8 @@ def last_traded_day_view(x, asset_name="Stocks"):
             st.info("🔵 Last Trading Day was approximately break-even after exact day charges.")
     else:
         st.warning(
-            "⚠️ Day-specific charges are not available for this uploaded trading day. "
-            "The uploaded broker report provides charges for a wider report period, "
-            "so that total is not allocated to one day. Net day P&L is intentionally "
-            "left unavailable rather than using an incorrect charge allocation."
+            "⚠️ Day-specific charges are not available for this uploaded trading day, "
+            "so Day net P&L is left unavailable rather than using an incorrect allocation."
         )
 
     a,b,c,d=st.columns(4)
@@ -665,13 +665,13 @@ def last_traded_day_view(x, asset_name="Stocks"):
     if net is not None:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
-            f"{breakeven_trades} break-even • realised {money(gross)} − exact-day charges {money(day_charges)} = net {money(net)}."
+            f"{breakeven_trades} break-even • realised {money(gross)} − charges {money(day_charges)} = net {money(net)}."
         )
     else:
         st.caption(
             f"Day summary: {winning_trades} wins, {losing_trades} losses, "
             f"{breakeven_trades} break-even • realised {money(gross)}. "
-            "Day-specific charges are not available, so day net P&L is not allocated."
+            "Day-specific charges are not available."
         )
 
 def section_view(title,emoji,asset_name):
