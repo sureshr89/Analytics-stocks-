@@ -171,8 +171,8 @@ def save(uploaded,filename):
     c.execute('insert into sources(source_hash,filename,asset_class,period_start,period_end,uploaded_at,trade_count,gross_pnl,report_gross_pnl,report_charges) values(?,?,?,?,?,?,?,?,?,?)',(sh,filename,asset,ps,pe,datetime.now().isoformat(timespec='seconds'),len(rows),sum(r['pnl'] for r in rows),report_gross,report_charges))
     c.commit(); return len(rows),'Reconciled & imported',asset
 
-def money(x): return f"₹{x:,.0f}"
-def pct(x): return f"{x:.1%}"
+def money(x): return f"₹{float(x):,.2f}"
+def pct(x): return f"{float(x):.2f}%"
 
 def chart_layout(fig, height=300):
     fig.update_layout(
@@ -230,10 +230,10 @@ if inst!="All": f=f[f.instrument==inst]
 if syms: f=f[f.symbol.isin(syms)]
 
 def money(x):
-    return f"₹{float(x):,.0f}"
+    return f"₹{float(x):,.2f}"
 
 def pct(x):
-    return f"{float(x):.1f}%"
+    return f"{float(x):.2f}%"
 
 def chart_layout(fig,height=300):
     fig.update_layout(height=height,margin=dict(l=10,r=10,t=50,b=10),
@@ -300,6 +300,7 @@ def section_view(title,emoji,asset_name):
     with a:
         fig=px.line(daily,x="sell_date",y="Cumulative",markers=True,
                     title=f"{title} — cumulative gross P&L ({current_year})")
+        fig.update_yaxes(tickformat=",.2f")
         chart(fig,320)
     with b:
         sv=sym.sort_values("PnL")
@@ -307,13 +308,17 @@ def section_view(title,emoji,asset_name):
         fig=px.bar(show,x="PnL",y="symbol",orientation="h",color="PnL",
                    color_continuous_scale="RdYlGn",
                    title=f"{title} — cumulative P&L by symbol")
+        fig.update_xaxes(tickformat=",.2f")
         chart(fig,320)
 
-    monthly=x.assign(Month=x.sell_date.dt.strftime("%b"))             .groupby(["Month",x.sell_date.dt.month],as_index=False)             .agg(PnL=("pnl","sum"),Trades=("pnl","size"))
-    monthly=monthly.sort_values("sell_date")
+    monthly=x.assign(MonthNum=x.sell_date.dt.month,Month=x.sell_date.dt.strftime("%b")) \
+             .groupby(["MonthNum","Month"],as_index=False) \
+             .agg(PnL=("pnl","sum"),Trades=("pnl","size")) \
+             .sort_values("MonthNum")
     fig=px.bar(monthly,x="Month",y="PnL",color="PnL",
                color_continuous_scale="RdYlGn",
                title=f"{title} — monthly gross P&L ({current_year})")
+    fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
 
     st.subheader("📋 Symbol analysis")
