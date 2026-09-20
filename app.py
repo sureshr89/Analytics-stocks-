@@ -387,12 +387,13 @@ with tabs[1]:
     # Requested period views
     period_rows=[]
     latest=f.sell_date.max()
+    today=pd.Timestamp(datetime.now().date())
     if pd.notna(latest):
         prev=f[f.sell_date==latest]
-        cm=f[(f.sell_date.dt.year==latest.year)&(f.sell_date.dt.month==latest.month)]
-        y=f[f.sell_date.dt.year==latest.year]
+        cm=f[(f.sell_date.dt.year==today.year)&(f.sell_date.dt.month==today.month)]
+        y=f[f.sell_date.dt.year==today.year]
         period_rows=[
-            {"Period":"Previous day","PnL":prev.pnl.sum(),"Trades":len(prev),"WinRate":prev.win.mean()*100 if len(prev) else 0},
+            {"Period":"Latest trading day","PnL":prev.pnl.sum(),"Trades":len(prev),"WinRate":prev.win.mean()*100 if len(prev) else 0},
             {"Period":"Current month","PnL":cm.pnl.sum(),"Trades":len(cm),"WinRate":cm.win.mean()*100 if len(cm) else 0},
             {"Period":"Current year","PnL":y.pnl.sum(),"Trades":len(y),"WinRate":y.win.mean()*100 if len(y) else 0},
             {"Period":"Overall","PnL":f.pnl.sum(),"Trades":len(f),"WinRate":f.win.mean()*100 if len(f) else 0}
