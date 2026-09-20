@@ -382,6 +382,39 @@ def stocks_timing_view(x):
         if good.PnL>0: st.success(f"🔎 What went good: {good.BuyDay} produced {money(good.PnL)} across {int(good.Trades)} trades ({pct(good.WinRate)} win rate).")
         if bad.PnL<0: st.error(f"🔎 What went bad: {bad.BuyDay} lost {money(bad.PnL)} across {int(bad.Trades)} trades ({pct(bad.WinRate)} win rate).")
 
+def last_traded_day_view(x, charges):
+    last_day=x.sell_date.dropna().max()
+    day=x[x.sell_date.dt.normalize()==last_day.normalize()].copy()
+    if day.empty: return
+    day_gross=float(day.pnl.sum())
+    day_net=day_gross-float(charges)
+    wins=float(day.loc[day.pnl>0,"pnl"].sum())
+    losses=abs(float(day.loc[day.pnl<0,"pnl"].sum()))
+    win_rate=float((day.pnl>0).mean()*100)
+    st.subheader("🗓️ Last traded day")
+    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in the uploaded Stocks data")
+    a,b,c,d,e=st.columns(5)
+    a.metric("Gross P&L",money(day_gross))
+    b.metric("Charges",money(charges))
+    c.metric("Net P&L",money(day_net))
+    d.metric("Trades",f"{len(day):,}")
+    e.metric("Win rate",pct(win_rate))
+    if day_net>0:
+        st.success(f"🟢 What went good: last traded day closed NET PROFITABLE by {money(day_net)} after reported charges.")
+    elif day_net<0:
+        st.error(f"🔴 What went bad: last traded day closed NET LOSS of {money(day_net)} after reported charges.")
+    else:
+        st.info("🔵 Last traded day was approximately break-even after reported charges.")
+    sym=day.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"))
+    fig=px.bar(sym.sort_values("PnL"),x="PnL",y="symbol",orientation="h",color="PnL",color_continuous_scale="RdYlGn",title="Last traded day — P&L by stock")
+    fig.update_xaxes(tickformat=",.2f"); chart(fig,320)
+    if not sym.empty:
+        best=sym.loc[sym.PnL.idxmax()]
+        worst=sym.loc[sym.PnL.idxmin()]
+        if best.PnL>0: st.success(f"🔎 What went good: {best.symbol} contributed {money(best.PnL)}.")
+        if worst.PnL<0: st.error(f"🔎 What went bad: {worst.symbol} contributed {money(worst.PnL)}.")
+    st.markdown("---")
+
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
     st.header(f"{emoji} {title}")
