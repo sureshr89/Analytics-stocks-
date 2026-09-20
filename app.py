@@ -14,7 +14,7 @@ DB = "trading_journal_clean.db"
 st.markdown("""
 <style>
 :root { --bg:#0b1020; --card:#151c2f; --muted:#94a3b8; --text:#f8fafc; }
-.block-container { max-width: 1500px; padding: 1rem 1.1rem 3rem; }
+.block-container { max-width: 1500px; padding: 2rem 1.1rem 3rem; }
 h1 { font-size: clamp(1.65rem, 4vw, 2.5rem) !important; margin-bottom:.15rem !important; }
 h2 { font-size: 1.35rem !important; }
 h3 { font-size: 1.05rem !important; }
@@ -28,7 +28,7 @@ p, label, .stCaption { font-size: .86rem !important; }
 div[data-testid="stDataFrame"] { font-size:.72rem; }
 [data-testid="stFileUploader"] { border-radius:12px; }
 @media (max-width: 700px) {
-  .block-container { padding:.55rem .55rem 2rem; }
+  .block-container { padding:1.65rem .55rem 2rem; }
   [data-testid="stMetric"] { min-height:82px; padding:.6rem .65rem; }
   [data-testid="stMetricValue"] { font-size:1.05rem !important; }
   .stTabs [data-baseweb="tab"] { font-size:.7rem; padding:.45rem .5rem; }
@@ -693,6 +693,32 @@ def section_view(title,emoji,asset_name):
     if asset_name=="Stocks":
         stocks_timing_view(x)
     st.caption(f"Note: broker charges are reconciled at {asset_name}/report level and are not allocated to individual symbols.")
+
+def overall_summary_view():
+    """Current-year cumulative summary directly below the page title."""
+    total_gross=0.0
+    total_charges=0.0
+    for section_name in ["Stocks","F&O","Commodities"]:
+        _,section_charges,section_gross,_=section_data(section_name)
+        total_gross += section_gross
+        total_charges += section_charges
+    total_net=total_gross-total_charges
+    total_trades=len(df)
+    total_win_rate=float((df.pnl>0).mean()*100) if not df.empty else 0.0
+
+    st.markdown("### 📌 Cumulative details")
+    a,b,c,d,e=st.columns(5)
+    a.metric("Gross P&L",money(total_gross))
+    b.metric("Charges",money(total_charges))
+    c.metric("Net P&L",money(total_net))
+    d.metric("Trades",f"{total_trades:,}")
+    e.metric("Win rate",pct(total_win_rate))
+    st.caption(
+        f"{current_year} cumulative across Stocks + Equity F&O + Commodities • "
+        "Gross P&L • broker-reported charges • Net P&L • cumulative performance"
+    )
+
+overall_summary_view()
 
 tabs=st.tabs(["📈 Stocks","🎯 Equity F&O","⛽ Commodities"])
 with tabs[0]:
