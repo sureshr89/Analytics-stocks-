@@ -581,7 +581,9 @@ def section_view(title,emoji,asset_name):
     wins=base.loc[base.pnl>0,"pnl"].sum()
     losses=abs(base.loc[base.pnl<0,"pnl"].sum())
     win_rate=(base.pnl>0).mean()*100
-    pf=wins/losses if losses else np.inf
+    filtered_wins=x.loc[x.pnl>0,"pnl"].sum()
+    filtered_losses=abs(x.loc[x.pnl<0,"pnl"].sum())
+    filtered_pf=filtered_wins/filtered_losses if filtered_losses else np.inf
 
     a,b,c,d,e=st.columns(5)
     a.metric("Net realised P&L",money(net))
@@ -614,7 +616,7 @@ def section_view(title,emoji,asset_name):
         show=pd.concat([sv.head(7),sv.tail(7)]).drop_duplicates()
         fig=px.bar(show,x="PnL",y="symbol",orientation="h",color="PnL",
                    color_continuous_scale="RdYlGn",
-                   title=f"{title} — cumulative P&L by symbol")
+                   title=f"{title} — top/bottom 7 cumulative P&L by symbol")
         fig.update_xaxes(tickformat=",.2f")
         chart(fig,320)
 
@@ -628,8 +630,12 @@ def section_view(title,emoji,asset_name):
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
 
-    observation_text=f"Realised P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
-    observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
+    observation_text=f"Full-section realised P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
+    observation_text += (
+        f"Filtered chart profit factor is {filtered_pf:.2f}."
+        if np.isfinite(filtered_pf)
+        else "The filtered chart data has no losing trades, so its profit factor is undefined/infinite."
+    )
     st.info("🔎 Analysis — "+observation_text)
 
     # The 100% Success vs 100% Failure view is useful for the
