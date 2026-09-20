@@ -633,7 +633,7 @@ def last_traded_day_view(x, asset_name="Stocks"):
 def section_view(title,emoji,asset_name):
     x,charges,gross,net=section_data(asset_name)
     st.header(f"{emoji} {title}")
-    st.caption(f"{current_year} only • charges are broker-reported section totals • Net P&L = reconstructed gross P&L − reported charges")
+    st.caption(f"{current_year} only • Gross P&L uses broker-reported EOD realised P&L when available • Net P&L = broker-reported gross P&L − reported charges")
 
     if x.empty:
         st.info(f"No {title} trades loaded for {current_year}.")
