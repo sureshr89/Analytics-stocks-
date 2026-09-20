@@ -214,15 +214,23 @@ if asset!="All": f=f[f.asset_class==asset]
 if inst!="All": f=f[f.instrument==inst]
 if syms: f=f[f.symbol.isin(syms)]
 
-gross=f.pnl.sum(); wins=f.loc[f.win,"pnl"].sum(); losses=f.loc[f.loss,"pnl"].sum(); n=len(f)
-charge=0
-if not ch.empty:
-    ch["period_end"]=pd.to_datetime(ch.period_end,errors="coerce")
-    for a in f.asset_class.dropna().unique():
-        z=ch[ch.asset_class==a]
-        if len(z):
-            last=z.period_end.max()
-            charge += z[(z.period_end==last)&(z.charge_name.str.lower()=="total")].amount.sum()
+src=pd.read_sql_query("select * from sources",conn())
+src["period_end"]=pd.to_datetime(src["period_end"],errors="coerce")
+if not src.empty and src["report_gross_pnl"].notna().any() and inst=="All" and not syms:
+    scoped=src[src.asset_class.isin(f.asset_class.dropna().unique())]
+    gross=float(scoped["report_gross_pnl"].fillna(0).sum())
+    charge=float(scoped["report_charges"].fillna(0).sum())
+else:
+    gross=float(f.pnl.sum())
+    charge=0.0
+    if not ch.empty:
+        ch["period_end"]=pd.to_datetime(ch.period_end,errors="coerce")
+        for aa in f.asset_class.dropna().unique():
+            z=ch[ch.asset_class==aa]
+            if len(z):
+                last=z.period_end.max()
+                charge += z[(z.period_end==last)&(z.charge_name.str.lower()=="total")].amount.sum()
+wins=f.loc[f.win,"pnl"].sum(); losses=f.loc[f.loss,"pnl"].sum(); n=len(f)
 net=gross-charge
 
 # Compact KPI cards
