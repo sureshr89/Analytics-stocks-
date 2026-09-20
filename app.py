@@ -572,19 +572,9 @@ def section_view(title,emoji,asset_name):
     # summary, so the day-level reconciliation is not buried below charts.
     last_traded_day_view(x, asset_name)
 
-    # Top cumulative profit/loss cards
     sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("pnl",lambda s:(s<0).sum()))
     sym["WinRate"]=sym.Wins/sym.Trades*100
     sym["FailureRate"]=sym.Losses/sym.Trades*100
-    best=sym.loc[sym.PnL.idxmax()]
-    worst=sym.loc[sym.PnL.idxmin()]
-    a,b=st.columns(2)
-    with a:
-        st.metric("🏆 Top cumulative profit",f"{best.symbol} • {money(best.PnL)}",
-                  f"{int(best.Trades)} trades")
-    with b:
-        st.metric("🔻 Top cumulative loss",f"{worst.symbol} • {money(worst.PnL)}",
-                  f"{int(worst.Trades)} trades")
 
     daily=x.groupby("sell_date",as_index=False).agg(PnL=("pnl","sum"))
     daily["Cumulative"]=daily.PnL.cumsum()
@@ -613,70 +603,66 @@ def section_view(title,emoji,asset_name):
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
 
-    with st.expander("📋 Symbol analysis", expanded=False):
-        table=sym.sort_values("PnL",ascending=False).copy()
-        table["P&L"]=table.PnL.map(money)
-        table["Win rate"]=table.WinRate.map(pct)
-        st.dataframe(table[["symbol","Trades","Win rate","P&L"]].rename(columns={"symbol":"Symbol"}),
-                     use_container_width=True,hide_index=True)
-
     observation_text=f"Gross P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
     st.info("🔎 Analysis — "+observation_text)
 
-    # Perfect / failed stock records
-    perfect=table[(table["WinRate"]==100)].copy()
-    failed=table[(table["FailureRate"]==100)].copy()
+    # The 100% Success vs 100% Failure view is useful for the
+    # Stocks section only. Keep F&O and Commodities focused on day-level
+    # reconciliation and P&L/charges analytics.
+    if asset_name=="Stocks":
+        perfect=table[(table["WinRate"]==100)].copy()
+        failed=table[(table["FailureRate"]==100)].copy()
 
-    st.subheader("🎯 100% Success vs 100% Failure stocks")
-    st.caption(
-        "100% Success = every completed trade for that stock was profitable. "
-        "100% Failure = every completed trade for that stock was a loss."
-    )
-
-    st.markdown("### 🟢 100% Success")
-    if perfect.empty:
-        st.info("No stock has a 100% success record in the current data.")
-    else:
-        p=perfect.sort_values(["Trades","PnL"],ascending=[False,False]).copy()
-        p["Label"]=p["symbol"]+" ("+p["Trades"].astype(int).astype(str)+" trades)"
-        fig=px.bar(
-            p.sort_values("PnL"),
-            x="PnL",
-            y="Label",
-            orientation="h",
-            text="PnL",
-            title="Stocks with 100% winning trades"
-        )
-        fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
-        fig.update_xaxes(tickformat=",.2f")
-        chart(fig,max(300,min(650,230+len(p)*32)))
-        st.success(
-            "All trades were profitable for: "
-            + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in p.iterrows())
+        st.subheader("🎯 100% Success vs 100% Failure stocks")
+        st.caption(
+            "100% Success = every completed trade for that stock was profitable. "
+            "100% Failure = every completed trade for that stock was a loss."
         )
 
-    st.markdown("### 🔴 100% Failure")
-    if failed.empty:
-        st.info("No stock has a 100% failure record in the current data.")
-    else:
-        q=failed.sort_values(["Trades","PnL"],ascending=[False,True]).copy()
-        q["Label"]=q["symbol"]+" ("+q["Trades"].astype(int).astype(str)+" trades)"
-        fig=px.bar(
-            q.sort_values("PnL"),
-            x="PnL",
-            y="Label",
-            orientation="h",
-            text="PnL",
-            title="Stocks with 100% losing trades"
-        )
-        fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
-        fig.update_xaxes(tickformat=",.2f")
-        chart(fig,max(300,min(650,230+len(q)*32)))
-        st.error(
-            "All trades were losing for: "
-            + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in q.iterrows())
-        )
+        st.markdown("### 🟢 100% Success")
+        if perfect.empty:
+            st.info("No stock has a 100% success record in the current data.")
+        else:
+            p=perfect.sort_values(["Trades","PnL"],ascending=[False,False]).copy()
+            p["Label"]=p["symbol"]+" ("+p["Trades"].astype(int).astype(str)+" trades)"
+            fig=px.bar(
+                p.sort_values("PnL"),
+                x="PnL",
+                y="Label",
+                orientation="h",
+                text="PnL",
+                title="Stocks with 100% winning trades"
+            )
+            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+            fig.update_xaxes(tickformat=",.2f")
+            chart(fig,max(300,min(650,230+len(p)*32)))
+            st.success(
+                "All trades were profitable for: "
+                + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in p.iterrows())
+            )
+
+        st.markdown("### 🔴 100% Failure")
+        if failed.empty:
+            st.info("No stock has a 100% failure record in the current data.")
+        else:
+            q=failed.sort_values(["Trades","PnL"],ascending=[False,True]).copy()
+            q["Label"]=q["symbol"]+" ("+q["Trades"].astype(int).astype(str)+" trades)"
+            fig=px.bar(
+                q.sort_values("PnL"),
+                x="PnL",
+                y="Label",
+                orientation="h",
+                text="PnL",
+                title="Stocks with 100% losing trades"
+            )
+            fig.update_traces(texttemplate="%{text:,.2f}",textposition="outside")
+            fig.update_xaxes(tickformat=",.2f")
+            chart(fig,max(300,min(650,230+len(q)*32)))
+            st.error(
+                "All trades were losing for: "
+                + ", ".join(f"{r.symbol} ({int(r.Trades)} trades)" for _,r in q.iterrows())
+            )
 
     if asset_name=="Stocks":
         stocks_timing_view(x)
