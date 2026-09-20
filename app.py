@@ -429,7 +429,7 @@ def section_data(name):
                 gross=float(src["report_gross_pnl"].sum())
 
     if gross is None:
-        gross=float(x.pnl.sum())
+        gross=float(base.pnl.sum())
     return x,charges,gross,gross-charges,base
 
 def stocks_timing_view(x):
@@ -572,7 +572,10 @@ def section_view(title,emoji,asset_name):
     )
 
     if x.empty:
-        st.info(f"No {title} trades loaded for {current_year}.")
+        if base.empty:
+            st.info(f"No {title} trades loaded for {current_year}.")
+        else:
+            st.info(f"No {title} trades match the current sidebar filters.")
         return
 
     wins=base.loc[base.pnl>0,"pnl"].sum()
@@ -584,7 +587,7 @@ def section_view(title,emoji,asset_name):
     a.metric("Net realised P&L",money(net))
     b.metric("Realised P&L",money(gross))
     c.metric("Charges",money(charges))
-    d.metric("Trades",f"{len(x):,}")
+    d.metric("Trades",f"{len(base):,}")
     e.metric("Win rate",pct(win_rate))
 
     if net>0:
