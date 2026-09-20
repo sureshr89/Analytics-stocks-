@@ -607,12 +607,12 @@ def section_view(title,emoji,asset_name):
     fig.update_yaxes(tickformat=",.2f")
     chart(fig,300)
 
-    st.subheader("📋 Symbol analysis")
-    table=sym.sort_values("PnL",ascending=False).copy()
-    table["P&L"]=table.PnL.map(money)
-    table["Win rate"]=table.WinRate.map(pct)
-    st.dataframe(table[["symbol","Trades","Win rate","P&L"]].rename(columns={"symbol":"Symbol"}),
-                 use_container_width=True,hide_index=True)
+    with st.expander("📋 Symbol analysis", expanded=False):
+        table=sym.sort_values("PnL",ascending=False).copy()
+        table["P&L"]=table.PnL.map(money)
+        table["Win rate"]=table.WinRate.map(pct)
+        st.dataframe(table[["symbol","Trades","Win rate","P&L"]].rename(columns={"symbol":"Symbol"}),
+                     use_container_width=True,hide_index=True)
 
     observation_text=f"Gross P&L {money(gross)} − reported charges {money(charges)} = net {money(net)}. "
     observation_text += f"Profit factor is {pf:.2f}." if np.isfinite(pf) else "There are no losing trades, so profit factor is undefined/infinite."
