@@ -328,7 +328,38 @@ def chart(fig,height=300):
 def section_data(name):
     x=f[f.asset_class.eq(name)].copy()
     charges=float(ch_year[ch_year.asset_class.eq(name)].amount.sum()) if not ch_year.empty else 0.0
-    gross=float(x.pnl.sum())
+
+    # Prefer broker report-level realised P&L for section/year totals.
+    # Trade-row reconstruction can differ from Groww's report total.
+    src=pd.read_sql_query(
+        "select source_hash,period_start,period_end,report_gross_pnl from sources where asset_class=?",
+        conn(), params=(name,)
+    )
+    if not src.empty:
+        src["period_start"]=pd.to_datetime(src["period_start"],errors="coerce")
+        src["period_end"]=pd.to_datetime(src["period_end"],errors="coerce")
+        src=src[src["period_end"].dt.year.eq(current_year) & src["report_gross_pnl"].notna()].copy()
+
+    gross=None
+    if not src.empty:
+        # A broader report replaces contained reports in save(). Use the
+        # widest stored broker report when it covers the stored period.
+        if len(src)==1:
+            gross=float(src["report_gross_pnl"].iloc[0])
+        else:
+            src["span_days"]=(src["period_end"]-src["period_start"]).dt.days.fillna(-1)
+            widest=src.sort_values(["span_days","period_end"],ascending=[False,False]).iloc[0]
+            covered=src[
+                (src["period_start"]>=widest["period_start"]) &
+                (src["period_end"]<=widest["period_end"])
+            ]
+            if len(covered)==len(src):
+                gross=float(widest["report_gross_pnl"])
+            else:
+                gross=float(src["report_gross_pnl"].sum())
+
+    if gross is None:
+        gross=float(x.pnl.sum())
     return x,charges,gross,gross-charges
 
 def stocks_timing_view(x):
