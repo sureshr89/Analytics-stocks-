@@ -495,54 +495,22 @@ def stocks_timing_view(x):
     else:
         st.info("⏰ Entry/exit time analysis is waiting for EOD files that contain actual timestamps. The currently stored trade dates contain dates only, so no artificial time performance is shown.")
 
-    win_by_day=t[t["pnl"]>0].groupby("BuyDay").size().reset_index(name="Trades")
-    loss_by_day=t[t["pnl"]<0].groupby("BuyDay").size().reset_index(name="Trades")
-    a,b=st.columns(2)
-    with a:
-        if not win_by_day.empty:
-            fig=px.pie(
-                win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — winning trade distribution by entry weekday"
-            )
-            chart(fig,300)
-    with b:
-        if not loss_by_day.empty:
-            fig=px.pie(
-                loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title="Stocks — losing trade distribution by entry weekday"
-            )
-            chart(fig,300)
-
-    st.caption(
-        "Pie percentages are the share of all winning trades or all losing trades by weekday. "
-        "Break-even trades are excluded from both pies."
-    )
-
     if not day.empty:
-        good=day.loc[day.PnL.idxmax()]
-        bad=day.loc[day.PnL.idxmin()]
-        good_day=good.BuyDay; bad_day=bad.BuyDay
-        good_wins=int(((t.BuyDay==good_day)&(t.pnl>0)).sum())
-        good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
-        bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
-        bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
-
-        st.markdown("### 🏆 Winning day vs 🔻 Loss day")
-        a,b=st.columns(2)
-        with a:
-            st.success(
-                f"🏆 **Winning day: {good_day}**\n\n"
-                f"**P&L:** {money(good.PnL)}  •  **{int(good.Trades)} trades**\n\n"
-                f"**Win rate:** {pct(good.WinRate)}  •  "
-                f"**{good_wins} wins / {good_losses} losses**"
+        weekday_chart=day[day.PnL!=0].copy()
+        if not weekday_chart.empty:
+            weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
+            fig=px.bar(
+                weekday_chart,
+                x="BuyDay",
+                y="PnL",
+                color="DayType",
+                category_orders={"BuyDay":weekdays},
+                color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
+                title="Stocks — winning days vs loss days"
             )
-        with b:
-            st.error(
-                f"🔻 **Loss day: {bad_day}**\n\n"
-                f"**P&L:** {money(abs(bad.PnL))} loss  •  **{int(bad.Trades)} trades**\n\n"
-                f"**Win rate:** {pct(bad.WinRate)}  •  "
-                f"**{bad_wins} wins / {bad_losses} losses**"
-            )
+            fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
+            fig.update_layout(legend_title_text="Day type")
+            chart(fig,320)
 
 def weekday_pnl_view(x, title):
     st.subheader("📅 Entry weekday analysis")
@@ -556,54 +524,22 @@ def weekday_pnl_view(x, title):
     day["Order"]=pd.Categorical(day.BuyDay,categories=weekdays,ordered=True)
     day=day.sort_values("Order")
 
-    win_by_day=t[t["pnl"]>0].groupby("BuyDay").size().reset_index(name="Trades")
-    loss_by_day=t[t["pnl"]<0].groupby("BuyDay").size().reset_index(name="Trades")
-    a,b=st.columns(2)
-    with a:
-        if not win_by_day.empty:
-            fig=px.pie(
-                win_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — winning trade distribution by entry weekday"
-            )
-            chart(fig,300)
-    with b:
-        if not loss_by_day.empty:
-            fig=px.pie(
-                loss_by_day,names="BuyDay",values="Trades",hole=0.45,
-                title=f"{title} — losing trade distribution by entry weekday"
-            )
-            chart(fig,300)
-
-    st.caption(
-        "Pie percentages are the share of all winning trades or all losing trades by weekday. "
-        "Break-even trades are excluded from both pies."
-    )
-
     if not day.empty:
-        good=day.loc[day.PnL.idxmax()]
-        bad=day.loc[day.PnL.idxmin()]
-        good_day=good.BuyDay; bad_day=bad.BuyDay
-        good_wins=int(((t.BuyDay==good_day)&(t.pnl>0)).sum())
-        good_losses=int(((t.BuyDay==good_day)&(t.pnl<0)).sum())
-        bad_wins=int(((t.BuyDay==bad_day)&(t.pnl>0)).sum())
-        bad_losses=int(((t.BuyDay==bad_day)&(t.pnl<0)).sum())
-
-        st.markdown("### 🏆 Winning day vs 🔻 Loss day")
-        a,b=st.columns(2)
-        with a:
-            st.success(
-                f"🏆 **Winning day: {good_day}**\n\n"
-                f"**P&L:** {money(good.PnL)}  •  **{int(good.Trades)} trades**\n\n"
-                f"**Win rate:** {pct(good.WinRate)}  •  "
-                f"**{good_wins} wins / {good_losses} losses**"
+        weekday_chart=day[day.PnL!=0].copy()
+        if not weekday_chart.empty:
+            weekday_chart["DayType"]=np.where(weekday_chart.PnL>0,"Winning day","Loss day")
+            fig=px.bar(
+                weekday_chart,
+                x="BuyDay",
+                y="PnL",
+                color="DayType",
+                category_orders={"BuyDay":weekdays},
+                color_discrete_map={"Winning day":"#16a34a","Loss day":"#dc2626"},
+                title=f"{title} — winning days vs loss days"
             )
-        with b:
-            st.error(
-                f"🔻 **Loss day: {bad_day}**\n\n"
-                f"**P&L:** {money(abs(bad.PnL))} loss  •  **{int(bad.Trades)} trades**\n\n"
-                f"**Win rate:** {pct(bad.WinRate)}  •  "
-                f"**{bad_wins} wins / {bad_losses} losses**"
-            )
+            fig.update_yaxes(tickformat=",.2f",zeroline=True,zerolinewidth=2)
+            fig.update_layout(legend_title_text="Day type")
+            chart(fig,320)
 
 def section_view(title,emoji,asset_name):
     x,charges,gross,net,base=section_data(asset_name)
