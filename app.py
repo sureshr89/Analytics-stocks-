@@ -385,8 +385,9 @@ def section_view(title,emoji,asset_name):
         st.info(f"🔵 {title}: {current_year} is approximately break-even after reported charges.")
 
     # Top cumulative profit/loss cards
-    sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"))
+    sym=x.groupby("symbol",as_index=False).agg(PnL=("pnl","sum"),Trades=("pnl","size"),Wins=("win","sum"),Losses=("pnl",lambda s:(s<0).sum()))
     sym["WinRate"]=sym.Wins/sym.Trades*100
+    sym["FailureRate"]=sym.Losses/sym.Trades*100
     best=sym.loc[sym.PnL.idxmax()]
     worst=sym.loc[sym.PnL.idxmin()]
     a,b=st.columns(2)
@@ -436,7 +437,7 @@ def section_view(title,emoji,asset_name):
     st.info("🔎 Analysis — "+observation_text)
 \n    # Perfect / failed stock records
     perfect=table[(table["WinRate"]==100)].copy()
-    failed=table[(table["WinRate"]==0)].copy()
+    failed=table[(table["FailureRate"]==100)].copy()
 
     st.subheader("🎯 100% Success vs 100% Failure stocks")
     st.caption(
