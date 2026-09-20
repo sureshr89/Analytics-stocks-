@@ -380,6 +380,7 @@ def last_traded_day_view(x):
     stock_ch=ch[(ch.asset_class=="Stocks") &
                 (ch.charge_name.str.lower()=="total")].copy()
     day_charges=0.0
+    charge_source="No matching daily/report-period charge found"
     if not stock_ch.empty:
         stock_ch["period_start"]=pd.to_datetime(stock_ch["period_start"],errors="coerce").astype("datetime64[ns]")
         stock_ch["period_end"]=pd.to_datetime(stock_ch["period_end"],errors="coerce").astype("datetime64[ns]")
@@ -395,6 +396,7 @@ def last_traded_day_view(x):
                 span=(covered["period_end"]-covered["period_start"]).dt.days
             ).sort_values(["span","period_end"])
             day_charges=float(covered.iloc[0]["amount"])
+            charge_source=f"Broker charge report: {covered.iloc[0]['period_start'].strftime('%d %b %Y')}–{covered.iloc[0]['period_end'].strftime('%d %b %Y')}"
     gross=float(day.pnl.sum())
     net=gross-day_charges
     wins=float(day.loc[day.pnl>0,"pnl"].sum())
@@ -406,7 +408,7 @@ def last_traded_day_view(x):
     profit_factor=(wins/abs(losses)) if losses else np.inf
 
     st.subheader("🗓️ Last traded day")
-    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks")
+    st.caption(f"{last_day.strftime('%d %b %Y')} • latest completed trading day in Stocks • {charge_source}")
 
     a,b,c,d,e=st.columns(5)
     a.metric("Gross P&L",money(gross))
